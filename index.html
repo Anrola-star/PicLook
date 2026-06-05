@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>播放器</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <button class="folder-selector" id="selectFolder">选择文件夹</button>
+            </div>
+            <div class="file-tree" id="fileTree">
+                <div class="no-content" style="padding: 20px;">请选择文件夹</div>
+            </div>
+        </div>
+        <div class="viewer" id="viewer">
+            <div class="no-content" id="noContent">选择一个文件以开始</div>
+            <div class="nav-hint" id="navHint" style="display: none;">← 上一页 | 下一页 →</div>
+            <img class="viewer-image" id="viewerImage" style="display: none;" />
+            <div class="viewer-info" id="viewerInfo" style="display: none;"></div>
+            <div class="audio-player" id="audioPlayer" style="display: none;">
+                <div class="audio-cover" id="audioCover">
+                    <img class="cover-image" id="coverImage" style="display: none;" />
+                    <div class="audio-icon" id="audioIcon">🎵</div>
+                </div>
+                <div class="audio-info">
+                    <div class="audio-title" id="audioTitle"></div>
+                    <div class="audio-album" id="audioAlbum"></div>
+                </div>
+                <div class="audio-controls">
+                    <button class="audio-btn" id="audioPrev">⏮</button>
+                    <button class="audio-btn audio-play-btn" id="audioPlayPause">▶</button>
+                    <button class="audio-btn" id="audioNext">⏭</button>
+                </div>
+                <div class="audio-progress">
+                    <div class="progress-bar" id="progressBar">
+                        <div class="progress-fill" id="progressFill"></div>
+                        <div class="progress-handle" id="progressHandle"></div>
+                    </div>
+                    <div class="progress-time">
+                        <span id="currentTime">0:00</span> / <span id="totalTime">0:00</span>
+                    </div>
+                </div>
+                <input type="range" class="audio-volume" id="audioVolume" min="0" max="100" value="80" />
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
