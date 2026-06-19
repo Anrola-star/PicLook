@@ -3,24 +3,65 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>播放器</title>
+    <title>PicLook - 漫画/音乐/视频阅读器</title>
     <link rel="stylesheet" href="style.css">
+    <!-- JSZip 用于解压 ZIP/CBZ 文件 -->
+    <script src="libs/jszip.min.js"></script>
+    <!-- jsmediatags 用于读取音频文件内嵌封面 -->
+    <script src="libs/jsmediatags.min.js"></script>
 </head>
 <body>
     <div class="container">
         <div class="sidebar">
             <div class="sidebar-header">
-                <button class="folder-selector" id="selectFolder">选择文件夹</button>
+                <div class="import-dropdown">
+                    <button class="folder-selector" id="importBtn">📂 导入</button>
+                    <div class="dropdown-menu" id="dropdownMenu">
+                        <div class="dropdown-item" data-type="image">📷 导入图片</div>
+                        <div class="dropdown-item" data-type="music">🎵 导入音乐</div>
+                        <div class="dropdown-divider"></div>
+                        <div class="dropdown-item" data-type="video">🎬 导入视频</div>
+                    </div>
+                </div>
             </div>
             <div class="file-tree" id="fileTree">
-                <div class="no-content" style="padding: 20px;">请选择文件夹</div>
+                <div class="no-content" style="padding: 20px;">请选择导入方式</div>
             </div>
         </div>
         <div class="viewer" id="viewer">
             <div class="no-content" id="noContent">选择一个文件以开始</div>
-            <div class="nav-hint" id="navHint" style="display: none;">← 上一页 | 下一页 →</div>
-            <img class="viewer-image" id="viewerImage" style="display: none;" />
-            <div class="viewer-info" id="viewerInfo" style="display: none;"></div>
+            <div class="nav-hint" id="navHint" style="display: block;">← 上一页 | 下一页 →</div>
+            
+            <button class="nav-btn nav-btn-left" id="navLeftBtn" style="display: none;">‹</button>
+            <button class="nav-btn nav-btn-right" id="navRightBtn" style="display: none;">›</button>
+            
+            <button class="reset-btn" id="resetBtn" style="display: none;">⟲</button>
+            
+            <div class="image-container" id="imageContainer">
+                <img class="viewer-image" id="viewerImage" style="display: none;" />
+            </div>
+            
+            <div class="video-player" id="videoPlayer" style="display: none;">
+                <video id="videoElement" class="video-element"></video>
+                <div class="video-controls" id="videoControls">
+                    <div class="video-progress">
+                        <div class="video-progress-bar" id="videoProgressBar">
+                            <div class="video-progress-fill" id="videoProgressFill"></div>
+                        </div>
+                    </div>
+                    <div class="video-buttons">
+                        <button class="video-btn" id="videoPlayPause">▶</button>
+                        <span class="video-time" id="videoTime">0:00 / 0:00</span>
+                        <button class="video-btn" id="videoPrev">⏮</button>
+                        <button class="video-btn" id="videoNext">⏭</button>
+                        <input type="range" class="video-volume" id="videoVolume" min="0" max="100" value="80" />
+                        <button class="video-btn video-toggle" id="videoLoopBtn" title="循环播放">🔁</button>
+                        <button class="video-btn video-toggle" id="videoAutoNextBtn" title="自动连播">▶▶</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="viewer-info" id="viewerInfo" style="display: block;"></div>
             <div class="audio-player" id="audioPlayer" style="display: none;">
                 <div class="audio-cover" id="audioCover">
                     <img class="cover-image" id="coverImage" style="display: none;" />
