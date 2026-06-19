@@ -1,0 +1,2896 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PicLook - 漫画/音乐/视频阅读器</title>
+    <style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Microsoft YaHei', sans-serif;
+    background: #1a1a1a;
+    color: #fff;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.container {
+    display: flex;
+    height: 100vh;
+}
+
+.sidebar {
+    width: 300px;
+    background: linear-gradient(180deg, #2d2d2d 0%, #252525 100%);
+    overflow-y: auto;
+    border-right: 1px solid #3a3a3a;
+    flex-shrink: 0;
+    box-shadow: 
+        inset -8px 0 30px rgba(74, 144, 217, 0.05),
+        2px 0 20px rgba(0, 0, 0, 0.3);
+    position: relative;
+}
+
+.sidebar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, 
+        rgba(74, 144, 217, 0.03) 0%, 
+        transparent 50%,
+        rgba(155, 89, 182, 0.03) 100%);
+    pointer-events: none;
+}
+
+.sidebar-header {
+    padding: 20px;
+    border-bottom: 1px solid #444;
+}
+
+.folder-selector {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(135deg, #4a90d9 0%, #3a7bc8 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: all 0.3s ease;
+    box-shadow: 
+        0 4px 15px rgba(74, 144, 217, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    position: relative;
+    overflow: hidden;
+}
+
+.folder-selector::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, 
+        transparent, 
+        rgba(255, 255, 255, 0.2), 
+        transparent);
+    transition: left 0.5s ease;
+}
+
+.folder-selector:hover {
+    background: linear-gradient(135deg, #5a9fe9 0%, #4a8bd8 100%);
+    box-shadow: 
+        0 6px 20px rgba(74, 144, 217, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    transform: translateY(-2px);
+}
+
+.folder-selector:hover::before {
+    left: 100%;
+}
+
+.import-dropdown {
+    position: relative;
+    width: 100%;
+}
+
+.dropdown-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 8px;
+    background: linear-gradient(180deg, #3a3a3a 0%, #303030 100%);
+    border-radius: 10px;
+    box-shadow: 
+        0 8px 30px rgba(0, 0, 0, 0.4),
+        0 0 0 1px rgba(74, 144, 217, 0.1);
+    overflow: hidden;
+    z-index: 100;
+    border: 1px solid #444;
+}
+
+.dropdown-menu.show {
+    display: block;
+}
+
+.dropdown-item {
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 14px;
+    position: relative;
+    overflow: hidden;
+}
+
+.dropdown-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 3px;
+    height: 100%;
+    background: linear-gradient(180deg, #4a90d9 0%, #3a7bc8 100%);
+    transform: scaleY(0);
+    transition: transform 0.2s ease;
+}
+
+.dropdown-item:hover {
+    background: linear-gradient(90deg, rgba(74, 144, 217, 0.2) 0%, transparent 100%);
+    padding-left: 20px;
+}
+
+.dropdown-item:hover::before {
+    transform: scaleY(1);
+}
+
+.dropdown-item.disabled {
+    color: #888;
+    cursor: not-allowed;
+}
+
+.dropdown-item.disabled:hover {
+    background: #3a3a3a;
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: #555;
+    margin: 4px 0;
+}
+
+.file-tree {
+    padding: 10px;
+}
+
+.comic-folder {
+    margin-bottom: 15px;
+}
+
+.comic-title {
+    font-size: 16px;
+    font-weight: bold;
+    padding: 10px;
+    background: #333;
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.comic-title:hover {
+    background: #444;
+}
+
+.comic-title::before {
+    content: '▶';
+    font-size: 10px;
+    transition: transform 0.2s;
+}
+
+.comic-folder.open .comic-title::before {
+    transform: rotate(90deg);
+}
+
+.chapters {
+    display: none;
+    margin-top: 5px;
+    padding-left: 15px;
+}
+
+.comic-folder.open .chapters {
+    display: block;
+}
+
+.chapter {
+    padding: 8px 10px;
+    margin: 4px 0;
+    background: #3a3a3a;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.chapter:hover {
+    background: #4a4a4a;
+}
+
+.chapter.active {
+    background: #4a90d9;
+}
+
+.comic-item {
+    padding: 12px 15px;
+    margin: 5px 0;
+    background: linear-gradient(135deg, #3a3a3a 0%, #333333 100%);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.25s ease;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    position: relative;
+    border: 1px solid transparent;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.comic-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, 
+        transparent, 
+        rgba(74, 144, 217, 0.5), 
+        transparent);
+    transform: scaleX(0);
+    transition: transform 0.3s ease;
+}
+
+.comic-item:hover {
+    background: linear-gradient(135deg, #444444 0%, #3a3a3a 100%);
+    border-color: rgba(74, 144, 217, 0.3);
+    transform: translateX(4px);
+    box-shadow: 
+        0 4px 15px rgba(0, 0, 0, 0.2),
+        0 0 20px rgba(74, 144, 217, 0.1);
+}
+
+.comic-item:hover::before {
+    transform: scaleX(1);
+}
+
+.comic-item.active {
+    background: linear-gradient(135deg, #4a90d9 0%, #3a7bc8 100%);
+    box-shadow: 
+        0 4px 20px rgba(74, 144, 217, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.zip-comic {
+    margin: 4px 0;
+}
+
+.zip-chapter {
+    background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+}
+
+.zip-chapter:hover {
+    background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+}
+
+.zip-chapter.active {
+    background: linear-gradient(135deg, #4a90d9 0%, #2980b9 100%);
+}
+
+.section-header {
+    padding: 10px 15px;
+    margin: 10px 0;
+    font-size: 14px;
+    font-weight: bold;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.album-folder .comic-title {
+    background: linear-gradient(135deg, #4a3a6a 0%, #3a2a5a 100%);
+    border: 1px solid transparent;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    position: relative;
+    overflow: hidden;
+}
+
+.album-folder .comic-title::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, 
+        transparent, 
+        rgba(155, 89, 182, 0.5), 
+        transparent);
+    transform: scaleX(0);
+    transition: transform 0.3s ease;
+}
+
+.album-folder .comic-title:hover {
+    background: linear-gradient(135deg, #5a4a7a 0%, #4a3a6a 100%);
+    border-color: rgba(155, 89, 182, 0.3);
+    transform: translateX(4px);
+    box-shadow: 
+        0 4px 15px rgba(0, 0, 0, 0.2),
+        0 0 20px rgba(155, 89, 182, 0.1);
+}
+
+.album-folder .comic-title:hover::before {
+    transform: scaleX(1);
+}
+
+.track {
+    padding: 12px 15px;
+    margin: 5px 0;
+    background: linear-gradient(135deg, #3a3a5a 0%, #33334a 100%);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.25s ease;
+    position: relative;
+    border: 1px solid transparent;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+
+.track::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 3px;
+    height: 100%;
+    background: linear-gradient(180deg, #9b59b6 0%, #8e44ad 100%);
+    transform: scaleY(0);
+    transition: transform 0.2s ease;
+}
+
+.track:hover {
+    background: linear-gradient(135deg, #44446a 0%, #3a3a5a 100%);
+    border-color: rgba(155, 89, 182, 0.3);
+    padding-left: 20px;
+    box-shadow: 
+        0 4px 15px rgba(0, 0, 0, 0.2),
+        0 0 20px rgba(155, 89, 182, 0.1);
+}
+
+.track:hover::before {
+    transform: scaleY(1);
+}
+
+.track.active {
+    background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);
+    box-shadow: 
+        0 4px 20px rgba(155, 89, 182, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.video-item {
+    padding: 10px 15px;
+    margin: 4px 0;
+    background: #3a3a3a;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.2s;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.video-item:hover {
+    background: #4a4a4a;
+}
+
+.video-item.active {
+    background: #4a90d9;
+}
+
+.viewer {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #0a0a0a;
+    overflow: auto;
+    position: relative;
+}
+
+.image-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    cursor: grab;
+    position: relative;
+}
+
+.image-container:active {
+    cursor: grabbing;
+}
+
+.image-container.dragging {
+    cursor: grabbing;
+}
+
+.viewer-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    transition: transform 0.1s ease-out;
+    transform-origin: center center;
+}
+
+.viewer-image.dragging {
+    transition: none;
+}
+
+.nav-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 60px;
+    height: 60px;
+    border: none;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.6) 100%);
+    color: white;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    box-shadow: 
+        0 4px 15px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1),
+        0 0 20px rgba(74, 144, 217, 0.1);
+    backdrop-filter: blur(10px);
+}
+
+.nav-btn:hover {
+    background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.2) 0%, rgba(74, 144, 217, 0.8) 100%);
+    transform: translateY(-50%) scale(1.1);
+    box-shadow: 
+        0 6px 25px rgba(74, 144, 217, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3),
+        0 0 40px rgba(74, 144, 217, 0.3);
+}
+
+.nav-btn.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.nav-btn-left {
+    left: 20px;
+}
+
+.nav-btn-right {
+    right: 20px;
+}
+
+.reset-btn {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 40px;
+    height: 40px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+
+.reset-btn:hover {
+    background: rgba(74, 144, 217, 0.8);
+    transform: scale(1.1);
+}
+
+.reset-btn.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.video-player {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+}
+
+.video-element {
+    max-width: 100%;
+    max-height: 100%;
+    cursor: pointer;
+}
+
+.video-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 10px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+}
+
+.video-controls.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.video-progress {
+    width: 100%;
+}
+
+.video-progress-bar {
+    width: 100%;
+    height: 6px;
+    background: #555;
+    border-radius: 3px;
+    cursor: pointer;
+    overflow: hidden;
+}
+
+.video-progress-fill {
+    height: 100%;
+    background: #4a90d9;
+    width: 0%;
+    transition: width 0.1s;
+}
+
+.video-buttons {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.video-btn {
+    width: 36px;
+    height: 36px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.video-btn:hover {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+.video-time {
+    color: #fff;
+    font-size: 12px;
+    margin-left: auto;
+}
+
+.video-volume {
+    width: 80px;
+    height: 4px;
+    cursor: pointer;
+    accent-color: #4a90d9;
+}
+
+.video-toggle.active {
+    background: rgba(74, 144, 217, 0.8);
+}
+
+.viewer-info {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, rgba(0, 0, 0, 0.8) 0%, rgba(30, 30, 30, 0.7) 100%);
+    padding: 12px 24px;
+    border-radius: 25px;
+    font-size: 14px;
+    opacity: 1;
+    transition: all 0.3s ease;
+    pointer-events: none;
+    box-shadow: 
+        0 4px 15px rgba(0, 0, 0, 0.4),
+        0 0 20px rgba(74, 144, 217, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(74, 144, 217, 0.2);
+    backdrop-filter: blur(10px);
+}
+
+.viewer-info.hidden {
+    opacity: 0;
+}
+
+.no-content {
+    text-align: center;
+    color: #888;
+    font-size: 18px;
+}
+
+.nav-hint {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.5);
+    padding: 8px 16px;
+    border-radius: 16px;
+    font-size: 12px;
+    color: #aaa;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.nav-hint.hidden {
+    opacity: 0;
+}
+
+.audio-player {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 25px;
+    padding: 50px;
+    width: 550px;
+    max-width: 90vw;
+    max-height: 90vh;
+    background: linear-gradient(135deg, rgba(30, 30, 40, 0.95) 0%, rgba(20, 20, 30, 0.98) 100%);
+    border-radius: 20px;
+    box-shadow: 
+        0 20px 60px rgba(0, 0, 0, 0.5),
+        0 0 0 1px rgba(155, 89, 182, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(20px);
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    overflow: hidden;
+    z-index: 10;
+}
+
+.audio-player::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle at 30% 30%, 
+        rgba(155, 89, 182, 0.1) 0%, 
+        transparent 50%);
+    pointer-events: none;
+}
+
+.audio-cover {
+    width: 220px;
+    height: 220px;
+    min-width: 220px;
+    min-height: 220px;
+    background: linear-gradient(135deg, #6a4a8a 0%, #4a3a6a 50%, #5a4a7a 100%);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 
+        0 15px 40px rgba(155, 89, 182, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.3s ease;
+    flex-shrink: 0;
+}
+
+.audio-cover::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, 
+        rgba(255, 255, 255, 0.1) 0%, 
+        transparent 50%,
+        rgba(0, 0, 0, 0.2) 100%);
+    pointer-events: none;
+}
+
+.audio-icon {
+    font-size: 64px;
+}
+
+.cover-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.audio-info {
+    text-align: center;
+}
+
+.audio-title {
+    font-size: 24px;
+    font-weight: bold;
+    color: #fff;
+    margin-bottom: 8px;
+}
+
+.audio-album {
+    font-size: 16px;
+    color: #888;
+}
+
+.audio-controls {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.audio-btn {
+    width: 52px;
+    height: 52px;
+    border: none;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);
+    color: white;
+    font-size: 22px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 
+        0 4px 15px rgba(155, 89, 182, 0.4),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.audio-btn:hover {
+    background: linear-gradient(135deg, #a569bd 0%, #9b59b6 100%);
+    transform: scale(1.15);
+    box-shadow: 
+        0 6px 20px rgba(155, 89, 182, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3),
+        0 0 30px rgba(155, 89, 182, 0.3);
+}
+
+.audio-play-btn {
+    width: 75px;
+    height: 75px;
+    font-size: 32px;
+    background: linear-gradient(135deg, #c0392b 0%, #a93226 100%);
+    box-shadow: 
+        0 6px 20px rgba(192, 57, 43, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.audio-play-btn:hover {
+    background: linear-gradient(135deg, #d35400 0%, #c0392b 100%);
+    box-shadow: 
+        0 8px 25px rgba(192, 57, 43, 0.6),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3),
+        0 0 40px rgba(192, 57, 43, 0.3);
+}
+
+.audio-progress {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: linear-gradient(90deg, #3a3a4a 0%, #2a2a3a 100%);
+    border-radius: 4px;
+    position: relative;
+    cursor: pointer;
+    box-shadow: 
+        inset 0 2px 4px rgba(0, 0, 0, 0.3),
+        0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #9b59b6 0%, #8e44ad 50%, #9b59b6 100%);
+    border-radius: 4px;
+    box-shadow: 
+        0 0 10px rgba(155, 89, 182, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    transition: width 0.1s ease;
+}
+
+.progress-handle {
+    position: absolute;
+    top: 50%;
+    width: 18px;
+    height: 18px;
+    background: radial-gradient(circle at 30% 30%, #fff 0%, #ddd 100%);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 
+        0 2px 8px rgba(0, 0, 0, 0.4),
+        0 0 10px rgba(155, 89, 182, 0.5);
+    transition: transform 0.2s ease;
+}
+
+.progress-handle:hover {
+    transform: translate(-50%, -50%) scale(1.2);
+}
+
+.progress-time {
+    text-align: center;
+    font-size: 14px;
+    color: #888;
+}
+
+.audio-volume {
+    width: 150px;
+    height: 6px;
+    cursor: pointer;
+    accent-color: #4a90d9;
+}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="import-dropdown">
+                    <button class="folder-selector" id="importBtn">📂 导入</button>
+                    <div class="dropdown-menu" id="dropdownMenu">
+                        <div class="dropdown-item" data-type="image">📷 导入图片</div>
+                        <div class="dropdown-item" data-type="music">🎵 导入音乐</div>
+                        <div class="dropdown-divider"></div>
+                        <div class="dropdown-item" data-type="video">🎬 导入视频</div>
+                    </div>
+                </div>
+            </div>
+            <div class="file-tree" id="fileTree">
+                <div class="no-content" style="padding: 20px;">请选择导入方式</div>
+            </div>
+        </div>
+        <div class="viewer" id="viewer">
+            <div class="no-content" id="noContent">选择一个文件以开始</div>
+            <div class="nav-hint" id="navHint" style="display: block;">← 上一页 | 下一页 →</div>
+            
+            <button class="nav-btn nav-btn-left" id="navLeftBtn" style="display: none;">‹</button>
+            <button class="nav-btn nav-btn-right" id="navRightBtn" style="display: none;">›</button>
+            
+            <button class="reset-btn" id="resetBtn" style="display: none;">⟲</button>
+            
+            <div class="image-container" id="imageContainer">
+                <img class="viewer-image" id="viewerImage" style="display: none;" />
+            </div>
+            
+            <div class="video-player" id="videoPlayer" style="display: none;">
+                <video id="videoElement" class="video-element"></video>
+                <div class="video-controls" id="videoControls">
+                    <div class="video-progress">
+                        <div class="video-progress-bar" id="videoProgressBar">
+                            <div class="video-progress-fill" id="videoProgressFill"></div>
+                        </div>
+                    </div>
+                    <div class="video-buttons">
+                        <button class="video-btn" id="videoPlayPause">▶</button>
+                        <span class="video-time" id="videoTime">0:00 / 0:00</span>
+                        <button class="video-btn" id="videoPrev">⏮</button>
+                        <button class="video-btn" id="videoNext">⏭</button>
+                        <input type="range" class="video-volume" id="videoVolume" min="0" max="100" value="80" />
+                        <button class="video-btn video-toggle" id="videoLoopBtn" title="循环播放">🔁</button>
+                        <button class="video-btn video-toggle" id="videoAutoNextBtn" title="自动连播">▶▶</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="viewer-info" id="viewerInfo" style="display: block;"></div>
+            <div class="audio-player" id="audioPlayer" style="display: none;">
+                <div class="audio-cover" id="audioCover">
+                    <img class="cover-image" id="coverImage" style="display: none;" />
+                    <div class="audio-icon" id="audioIcon">🎵</div>
+                </div>
+                <div class="audio-info">
+                    <div class="audio-title" id="audioTitle"></div>
+                    <div class="audio-album" id="audioAlbum"></div>
+                </div>
+                <div class="audio-controls">
+                    <button class="audio-btn" id="audioPrev">⏮</button>
+                    <button class="audio-btn audio-play-btn" id="audioPlayPause">▶</button>
+                    <button class="audio-btn" id="audioNext">⏭</button>
+                </div>
+                <div class="audio-progress">
+                    <div class="progress-bar" id="progressBar">
+                        <div class="progress-fill" id="progressFill"></div>
+                        <div class="progress-handle" id="progressHandle"></div>
+                    </div>
+                    <div class="progress-time">
+                        <span id="currentTime">0:00</span> / <span id="totalTime">0:00</span>
+                    </div>
+                </div>
+                <input type="range" class="audio-volume" id="audioVolume" min="0" max="100" value="80" />
+            </div>
+        </div>
+    </div>
+
+<script>
+        // ==================== 全局变量定义 ====================
+// 自定义
+/**
+ * @type {boolean}
+ * @default true
+ * @description 是否启用自动加载上次文件夹
+ */
+let autoLoadEnabled = true;
+
+// 漫画相关数据
+/**
+ * @type {Array<{name: string, handle: FileSystemDirectoryHandle, images: Array}>}
+ * @default []
+ * @description 所有漫画列表
+ */
+let comics = [];
+/**
+ * @type {{name: string, handle: FileSystemDirectoryHandle, images: Array}}
+ * @default null
+ * @description 当前正在阅读的漫画
+ */
+let currentComic = null;
+/**
+ * @type {number}
+ * @default 0
+ * @description 当前显示的图片索引
+ */
+let currentImageIndex = 0;
+/**
+ * @type {Array}
+ * @default []
+ * @description 当前漫画的所有图片
+ */
+let currentImages = [];
+/**
+ * @type {number}
+ * @default 0
+ * @description 当前漫画在列表中的索引
+ */
+let currentComicIndex = 0;
+
+// 音频相关数据
+/**
+ * @type {Album}
+ * @default null
+ * @description 当前正在播放的专辑
+ */
+let currentAlbum = null;
+/**
+ * @type {number}
+ * @default 0
+ * @description 当前播放的曲目索引
+ * @default 0
+ */
+let currentTrackIndex = 0;
+/**
+ * @type {Array}
+ * @default []
+ * @description 当前专辑的所有曲目
+ */
+let currentTracks = [];
+/**
+ * @type {number}
+ * @default 0
+ * @description 当前专辑在列表中的索引
+ */
+let currentAlbumIndex = 0;
+/**
+ * @type {Array}
+ * @default []
+ * @description 所有专辑列表
+ */
+let albums = [];
+
+// 视频相关数据
+/**
+ * @type {Array}
+ * @default []
+ * @description 所有视频列表
+ */
+let videos = [];
+/**
+ * @type {number}
+ * @default 0
+ * @description 当前视频索引
+ */
+let currentVideoIndex = 0;
+/**
+ * @type {boolean}
+ * @default false
+ * @description 是否循环播放当前视频
+ */
+let videoLoop = false;
+/**
+ * @type {boolean}
+ * @default false
+ * @description 是否自动播放下一个视频
+ */
+let videoAutoNext = false;
+
+// 应用状态
+/**
+ * @type {string}
+ * @default 'comic'
+ * @description 当前应用模式：'comic'（漫画）或 'audio'（音频）或 'video'（视频）
+ */
+let currentMode = 'comic';
+/**
+ * @type {Audio}
+ * @default null
+ * @description 当前正在播放的音频对象
+ */
+let audio = null;
+/**
+ * @type {Video}
+ * @default null
+ * @description 当前正在播放的视频对象
+ */
+let videoElement = null;
+/**
+ * @type {boolean}
+ * @default false
+ * @description 当前音频/视频播放状态
+ */
+let isPlaying = false;
+/**
+ * @type {number}
+ * @default null
+ * @description 自动隐藏控制元素的定时器
+ */
+let hideControlsTimeout = null;           
+/**
+ * @type {number}
+ * @default 2000
+ * @description 控制元素自动隐藏延迟（毫秒）
+ */
+const CONTROLS_HIDE_DELAY = 2000;
+
+// ==================== DOM 元素获取 ====================
+
+// 界面元素
+/**
+ * @type {HTMLButtonElement}
+ * @description 导入按钮
+ */
+const importBtn = document.getElementById('importBtn');
+/**
+ * @type {HTMLButtonElement}
+ * @description 下拉菜单按钮
+ */
+/**
+ * @type {HTMLButtonElement}
+ * @description 下拉菜单按钮
+ */
+const dropdownMenu = document.getElementById('dropdownMenu');
+/**
+ * @type {HTMLDivElement}
+ * @description 文件树容器
+ */
+const fileTreeEl = document.getElementById('fileTree');
+/**
+ * @type {HTMLDivElement}
+ * @description 查看器容器
+ */
+const viewerEl = document.getElementById('viewer');
+/**
+ * @type {HTMLDivElement}
+ * @description 无内容提示
+ */
+const noContentEl = document.getElementById('noContent');
+/**
+ * @type {HTMLDivElement}
+ * @description 图片显示元素
+ */
+const viewerImageEl = document.getElementById('viewerImage');
+/**
+ * @type {HTMLDivElement}
+ * @description 图片信息显示
+ */
+const viewerInfoEl = document.getElementById('viewerInfo');
+/**
+ * @type {HTMLDivElement}
+ * @description 导航提示
+ */
+const navHintEl = document.getElementById('navHint');
+/**
+ * @type {HTMLButtonElement}
+ * @description 左翻页按钮
+ */
+const navLeftBtn = document.getElementById('navLeftBtn');
+/**
+ * @type {HTMLButtonElement}
+ * @description 右翻页按钮
+ */
+const navRightBtn = document.getElementById('navRightBtn');
+/**
+ * @type {HTMLButtonElement}
+ * @description 复位按钮
+ */
+const resetBtn = document.getElementById('resetBtn');
+/**
+ * @type {HTMLDivElement}
+ * @description 图片容器
+ */
+const imageContainerEl = document.getElementById('imageContainer');
+
+// 下拉菜单状态
+let isDropdownOpen = false;
+
+// 图片缩放和拖动相关变量
+let imageScale = 1;                    // 当前缩放比例
+let imageOffsetX = 0;                  // 图片水平偏移
+let imageOffsetY = 0;                  // 图片垂直偏移
+let isDragging = false;                // 是否正在拖动
+let dragStartX = 0;                    // 拖动起始 X 坐标
+let dragStartY = 0;                    // 拖动起始 Y 坐标
+let dragStartOffsetX = 0;              // 拖动起始时的水平偏移
+let dragStartOffsetY = 0;              // 拖动起始时的垂直偏移
+
+/**
+ * @type {HTMLDivElement}
+ * @description 音频播放器容器
+ */
+const audioPlayerEl = document.getElementById('audioPlayer');
+/**
+ * @type {HTMLDivElement}
+ * @description 曲目标题
+ */
+const audioTitleEl = document.getElementById('audioTitle');
+/**
+ * @type {HTMLDivElement}
+ * @description 专辑名称
+ */
+const audioAlbumEl = document.getElementById('audioAlbum');
+/**
+ * @type {HTMLButtonElement}
+ * @description 播放/暂停按钮
+ */
+const audioPlayPauseBtn = document.getElementById('audioPlayPause');
+/**
+ * @type {HTMLButtonElement}
+ * @description 上一首按钮
+ */
+const audioPrevBtn = document.getElementById('audioPrev');
+/**
+ * @type {HTMLButtonElement}
+ * @description 下一首按钮
+ */
+const audioNextBtn = document.getElementById('audioNext');
+/**
+ * @type {HTMLDivElement}
+ * @description 进度条容器
+ */
+const progressBarEl = document.getElementById('progressBar');
+/**
+ * @type {HTMLDivElement}
+ * @description 进度条填充
+ */
+const progressFillEl = document.getElementById('progressFill');
+/**
+ * @type {HTMLDivElement}
+ * @description 进度条滑块
+ */
+const progressHandleEl = document.getElementById('progressHandle');
+/**
+ * @type {HTMLDivElement}
+ * @description 当前时间显示
+ */
+const currentTimeEl = document.getElementById('currentTime');
+/**
+ * @type {HTMLDivElement}
+ * @description 总时间显示
+ */
+const totalTimeEl = document.getElementById('totalTime');
+/**
+ * @type {HTMLDivElement}
+ * @description 音量滑块
+ */
+const audioVolumeEl = document.getElementById('audioVolume');
+/**
+ * @type {HTMLDivElement}
+ * @description 专辑封面图片
+ */
+const coverImageEl = document.getElementById('coverImage');
+/**
+ * @type {HTMLDivElement}
+ * @description 音频图标
+ */
+const audioIconEl = document.getElementById('audioIcon');
+// ==================== 事件监听器 ====================
+
+// ==================== 导入菜单事件 ====================
+
+// 导入按钮点击事件 - 切换下拉菜单
+importBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    isDropdownOpen = !isDropdownOpen;
+    dropdownMenu.classList.toggle('show', isDropdownOpen);
+});
+
+// 点击下拉菜单项
+dropdownMenu.addEventListener('click', async (e) => {
+    const item = e.target.closest('.dropdown-item');
+    if (!item || item.classList.contains('disabled')) return;
+    
+    const type = item.dataset.type;
+    isDropdownOpen = false;
+    dropdownMenu.classList.remove('show');
+    
+    // 根据类型执行对应的导入函数
+    switch (type) {
+        case 'image':
+            await importImages();
+            break;
+        case 'music':
+            await importMusic();
+            break;
+        case 'video':
+            await importVideo();
+            break;
+    }
+});
+
+// 点击其他地方关闭下拉菜单
+document.addEventListener('click', () => {
+    if (isDropdownOpen) {
+        isDropdownOpen = false;
+        dropdownMenu.classList.remove('show');
+    }
+});
+
+// ==================== 导入功能函数 ====================
+
+/**
+ * 导入图片/漫画
+ */
+async function importImages() {
+    try {
+        const dirHandle = await window.showDirectoryPicker();
+        console.log('导入图片:', dirHandle);
+        fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">加载中...</div>';
+        await loadComics(dirHandle);
+        await saveFolderHandle(dirHandle);
+    } catch (err) {
+        console.error('导入图片失败:', err);
+        if (err.name !== 'AbortError') {
+            fileTreeEl.innerHTML = `<div class="no-content" style="padding: 20px;">
+                错误：${err.message}<br><br>
+                请确保使用 Chrome 或 Edge 浏览器，并且授予了文件夹访问权限。
+            </div>`;
+        }
+    }
+}
+
+/**
+ * 导入音乐
+ */
+async function importMusic() {
+    try {
+        const dirHandle = await window.showDirectoryPicker();
+        console.log('导入音乐:', dirHandle);
+        fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">加载中...</div>';
+        await loadMusic(dirHandle);
+    } catch (err) {
+        console.error('导入音乐失败:', err);
+        if (err.name !== 'AbortError') {
+            fileTreeEl.innerHTML = `<div class="no-content" style="padding: 20px;">
+                错误：${err.message}<br><br>
+                请确保使用 Chrome 或 Edge 浏览器，并且授予了文件夹访问权限。
+            </div>`;
+        }
+    }
+}
+
+/**
+ * 加载音乐（只扫描音频和封面，不扫描图片）
+ * @param {FileSystemDirectoryHandle} dirHandle - 根目录句柄
+ */
+async function loadMusic(dirHandle) {
+    // 清空现有数据
+    comics = [];
+    albums = [];
+
+    // 递归扫描音频目录
+    const audioDirs = await findAudioDirsRecursive(dirHandle, '');
+
+    // 将音频目录转换为专辑数据
+    for (const album of audioDirs) {
+        albums.push({
+            name: album.name,
+            handle: album.handle,
+            tracks: album.tracks,
+            cover: album.cover
+        });
+    }
+    
+    // 专辑按名称排序
+    albums.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    // 渲染文件树（只显示音乐专辑）
+    renderFileTree();
+}
+
+/**
+ * 导入视频
+ */
+async function importVideo() {
+    try {
+        const dirHandle = await window.showDirectoryPicker();
+        console.log('导入视频:', dirHandle);
+        fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">扫描中...</div>';
+        
+        // 递归扫描所有视频文件
+        videos = [];
+        await scanVideoFiles(dirHandle, '');
+        
+        if (videos.length === 0) {
+            fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">未找到视频文件</div>';
+            return;
+        }
+        
+        // 渲染视频列表
+        renderVideoList();
+        
+        // 显示第一个视频
+        if (videos.length > 0) {
+            await playVideo(0);
+        }
+        
+    } catch (err) {
+        console.error('导入视频失败:', err);
+        if (err.name !== 'AbortError') {
+            fileTreeEl.innerHTML = `<div class="no-content" style="padding: 20px;">
+                错误：${err.message}
+            </div>`;
+        }
+    }
+}
+
+/**
+ * 递归扫描视频文件
+ * @param {FileSystemDirectoryHandle} dirHandle - 目录句柄
+ * @param {string} parentPath - 父路径
+ */
+async function scanVideoFiles(dirHandle, parentPath) {
+    const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.wmv'];
+    
+    for await (const entry of dirHandle.values()) {
+        if (entry.kind === 'file') {
+            const ext = entry.name.toLowerCase().substring(entry.name.lastIndexOf('.'));
+            if (videoExtensions.includes(ext)) {
+                videos.push({
+                    name: entry.name,
+                    handle: entry
+                });
+            }
+        } else if (entry.kind === 'directory') {
+            // 递归扫描子目录
+            await scanVideoFiles(entry, parentPath + '/' + entry.name);
+        }
+    }
+}
+
+/**
+ * 渲染视频列表
+ */
+function renderVideoList() {
+    let html = '<div class="section-header">🎬 视频列表</div>';
+    html += videos.map((video, index) => `
+        <div class="video-item ${index === currentVideoIndex ? 'active' : ''}" data-index="${index}">
+            🎬 ${video.name}
+        </div>
+    `).join('');
+    
+    fileTreeEl.innerHTML = html;
+    
+    // 添加点击事件
+    document.querySelectorAll('.video-item').forEach(item => {
+        item.addEventListener('click', async () => {
+            const index = parseInt(item.dataset.index);
+            await playVideo(index);
+        });
+    });
+}
+
+/**
+ * 播放视频
+ * @param {number} index - 视频索引
+ */
+async function playVideo(index) {
+    if (index < 0 || index >= videos.length) return;
+    
+    currentVideoIndex = index;
+    const video = videos[index];
+    
+    // 切换模式
+    currentMode = 'video';
+    
+    // 获取文件
+    const file = await video.handle.getFile();
+    const url = URL.createObjectURL(file);
+    
+    // 创建或更新 video 元素
+    if (!videoElement) {
+        videoElement = document.getElementById('videoElement');
+    }
+    videoElement.src = url;
+    
+    // 重置进度条
+    document.getElementById('videoProgressFill').style.width = '0%';
+    document.getElementById('videoTime').textContent = '0:00 / 0:00';
+    
+    // 显示视频播放器
+    videoElement.style.display = 'block';
+    document.getElementById('videoPlayer').style.display = 'flex';
+    noContentEl.style.display = 'none';
+    
+    // 隐藏其他元素
+    document.getElementById('imageContainer').style.display = 'none';
+    audioPlayerEl.style.display = 'none';
+    
+    // 更新选中状态
+    document.querySelectorAll('.video-item').forEach((item, i) => {
+        item.classList.toggle('active', i === index);
+    });
+    
+    // 显示视频信息
+    viewerInfoEl.textContent = `${video.name} (${index + 1}/${videos.length})`;
+    
+    // 自动播放
+    videoElement.play().then(() => {
+        document.getElementById('videoPlayPause').textContent = '⏸';
+    }).catch(err => {
+        console.log('自动播放失败:', err);
+    });
+    
+    showControls();
+}
+
+// ==================== 翻页按钮事件 ====================
+
+// 翻页按钮事件
+navLeftBtn.addEventListener('click', async () => {
+    await prevPage();
+});
+
+navRightBtn.addEventListener('click', async () => {
+    await nextPage();
+});
+
+// 复位按钮事件
+resetBtn.addEventListener('click', () => {
+    imageScale = 1;
+    imageOffsetX = 0;
+    imageOffsetY = 0;
+    updateImageTransform();
+    showControls();
+});
+
+// 鼠标拖动事件
+imageContainerEl.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || !viewerImageEl.src) return;
+    e.preventDefault(); // 禁用默认拖拽行为
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    dragStartOffsetX = imageOffsetX;
+    dragStartOffsetY = imageOffsetY;
+    viewerImageEl.classList.add('dragging');
+    imageContainerEl.classList.add('dragging');
+    showControls();
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    
+    const deltaX = e.clientX - dragStartX;
+    const deltaY = e.clientY - dragStartY;
+    
+    imageOffsetX = dragStartOffsetX + deltaX;
+    imageOffsetY = dragStartOffsetY + deltaY;
+    
+    updateImageTransform();
+});
+
+document.addEventListener('mouseup', () => {
+    if (isDragging) {
+        isDragging = false;
+        viewerImageEl.classList.remove('dragging');
+        imageContainerEl.classList.remove('dragging');
+    }
+});
+
+// 滚轮缩放事件
+imageContainerEl.addEventListener('wheel', (e) => {
+    if (!viewerImageEl.src) return;
+    
+    e.preventDefault();
+    
+    const rect = imageContainerEl.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    const newScale = Math.max(0.5, Math.min(3, imageScale + delta));
+    
+    if (newScale !== imageScale) {
+        const scaleDiff = newScale / imageScale;
+        imageOffsetX = mouseX - (mouseX - imageOffsetX) * scaleDiff;
+        imageOffsetY = mouseY - (mouseY - imageOffsetY) * scaleDiff;
+        imageScale = newScale;
+        
+        updateImageTransform();
+        showControls();
+    }
+}, { passive: false });
+
+// ==================== 核心功能函数 ====================
+
+/**
+ * 加载漫画（只扫描图片和ZIP压缩包，不扫描音频）
+ * @param {FileSystemDirectoryHandle} dirHandle - 根目录句柄
+ */
+async function loadComics(dirHandle) {
+    // 清空现有漫画数据
+    comics = [];
+
+    // 递归扫描图片目录
+    comics = await findImageDirsRecursive(dirHandle, new Set(), '');
+
+    // 对漫画进行排序
+    comics.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    // 渲染文件树
+    renderFileTree();
+}
+
+/**
+ * 加载媒体文件（漫画和音频）
+ * @param {FileSystemDirectoryHandle} dirHandle - 根目录句柄
+ */
+async function loadMedia(dirHandle) {
+    // 清空现有数据
+    comics = [];
+    albums = [];
+
+    // 第一步：递归扫描所有音频目录
+    // 先扫描音频，因为音频目录中的图片应该作为封面，而不是漫画
+    const audioDirs = await findAudioDirsRecursive(dirHandle, '');
+    // 收集所有音频目录的路径，用于后续排除
+    const audioDirPaths = new Set(audioDirs.map(a => a.path));
+
+    // 第二步：递归扫描图片目录，排除音频目录
+    // 现在每个包含图片的目录就是一个漫画
+    comics = await findImageDirsRecursive(dirHandle, audioDirPaths, '');
+
+    // 第三步：对漫画进行排序
+    comics.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    // 第四步：处理专辑数据
+    for (const album of audioDirs) {
+        albums.push({
+            name: album.name,                // 专辑名称
+            handle: album.handle,            // 专辑目录句柄
+            tracks: album.tracks,            // 曲目列表
+            cover: album.cover               // 专辑封面
+        });
+    }
+    // 专辑按名称排序
+    albums.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    // 第五步：渲染文件树
+    renderFileTree();
+}
+
+/**
+ * 递归查找包含图片的目录（漫画）
+ * 每个包含图片的目录就是一个漫画，不再有章节的概念
+ * @param {FileSystemDirectoryHandle} rootHandle - 根目录句柄
+ * @param {Set<string>} audioDirPaths - 音频目录路径集合（需要排除）
+ * @param {string} parentPath - 父目录路径
+ * @returns {Promise<Array<{name: string, handle: FileSystemDirectoryHandle, images: Array}>} 漫画数组
+ */
+async function findImageDirsRecursive(rootHandle, audioDirPaths = new Set(), parentPath = '') {
+    // 支持的图片格式
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+    // 支持的压缩包格式
+    const zipExtensions = ['.zip', '.cbz'];
+    const results = [];
+
+    /**
+     * 递归扫描目录
+     * @param {FileSystemDirectoryHandle} dirHandle - 当前目录句柄
+     * @param {string} currentPath - 当前目录路径
+     */
+    async function scan(dirHandle, currentPath) {
+        // 构建当前目录的完整路径
+        const dirPath = currentPath ? currentPath + '/' + dirHandle.name : dirHandle.name;
+        
+        // 如果当前目录是音频目录，跳过扫描
+        // 这样可以避免将专辑封面识别为漫画
+        if (audioDirPaths.has(dirPath)) {
+            return;
+        }
+
+        let imagesInThisDir = [];  // 当前目录中的图片
+        const subdirs = [];        // 子目录列表
+        const zipFiles = [];       // 当前目录中的 ZIP 文件
+
+        // 遍历目录中的所有条目
+        for await (const entry of dirHandle.values()) {
+            if (entry.kind === 'file') {
+                // 处理文件：检查是否为图片
+                const ext = entry.name.toLowerCase().substring(entry.name.lastIndexOf('.'));
+                if (imageExtensions.includes(ext)) {
+                    imagesInThisDir.push({
+                        name: entry.name,   // 文件名
+                        handle: entry       // 文件句柄
+                    });
+                } else if (zipExtensions.includes(ext)) {
+                    // 处理 ZIP 文件
+                    zipFiles.push({
+                        name: entry.name,   // 文件名
+                        handle: entry       // 文件句柄
+                    });
+                }
+            } else if (entry.kind === 'directory') {
+                // 处理目录：添加到子目录列表
+                subdirs.push(entry);
+            }
+        }
+
+        // 如果当前目录包含图片，将其识别为一个漫画
+        if (imagesInThisDir.length > 0) {
+            // 按文件名排序（支持数字排序）
+            imagesInThisDir.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+            // 将结果添加到数组（每个目录就是一个漫画）
+            results.push({
+                name: dirHandle.name,       // 漫画名称（目录名）
+                handle: dirHandle,          // 漫画目录句柄
+                images: imagesInThisDir     // 图片列表
+            });
+        }
+
+        // 如果当前目录包含 ZIP 文件，每个 ZIP 文件作为一个漫画
+        for (const zipFile of zipFiles) {
+            const comicName = zipFile.name.replace(/\.(zip|cbz)$/i, '');
+            results.push({
+                name: comicName,               // 漫画名称（去掉扩展名）
+                handle: zipFile.handle,        // ZIP 文件句柄
+                images: [],                    // 图片列表（延迟加载）
+                isZip: true                    // 标记为 ZIP 漫画
+            });
+        }
+
+        // 递归扫描子目录
+        for (const subdir of subdirs) {
+            await scan(subdir, dirPath);
+        }
+    }
+
+    // 开始扫描
+    await scan(rootHandle, parentPath);
+    return results;
+}
+
+/**
+ * 递归查找包含音频的目录（专辑）
+ * @param {FileSystemDirectoryHandle} rootHandle - 根目录句柄
+ * @param {string} parentPath - 父目录路径
+ * @returns {Promise<Array>} 包含音频的目录信息数组
+ */
+async function findAudioDirsRecursive(rootHandle, parentPath = '') {
+    // 支持的音频格式
+    const audioExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.wma'];
+    // 支持的图片格式（用于专辑封面）
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+    const results = [];
+
+    /**
+     * 递归扫描目录
+     * @param {FileSystemDirectoryHandle} dirHandle - 当前目录句柄
+     * @param {string} currentPath - 当前目录路径
+     */
+    async function scan(dirHandle, currentPath) {
+        // 构建当前目录的完整路径
+        const dirPath = currentPath ? currentPath + '/' + dirHandle.name : dirHandle.name;
+        
+        let tracksInThisDir = [];  // 当前目录中的音频文件
+        let cover = null;          // 专辑封面
+        const subdirs = [];        // 子目录列表
+
+        // 遍历目录中的所有条目
+        for await (const entry of dirHandle.values()) {
+            if (entry.kind === 'file') {
+                const ext = entry.name.toLowerCase().substring(entry.name.lastIndexOf('.'));
+                if (audioExtensions.includes(ext)) {
+                    // 处理音频文件：添加到曲目列表
+                    tracksInThisDir.push({
+                        name: entry.name.replace(/\.[^.]+$/, ''),  // 去除扩展名的文件名
+                        fullName: entry.name,                        // 完整文件名
+                        handle: entry                               // 文件句柄
+                    });
+                } else if (imageExtensions.includes(ext) && !cover) {
+                    // 处理图片文件：第一张图片作为专辑封面
+                    cover = {
+                        name: entry.name,
+                        handle: entry
+                    };
+                }
+            } else if (entry.kind === 'directory') {
+                // 处理目录：添加到子目录列表
+                subdirs.push(entry);
+            }
+        }
+
+        // 如果当前目录包含音频，将其识别为一个专辑
+        if (tracksInThisDir.length > 0) {
+            // 按曲目名排序（支持数字排序）
+            tracksInThisDir.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+            results.push({
+                name: dirHandle.name,         // 专辑名称（目录名）
+                handle: dirHandle,            // 专辑目录句柄
+                tracks: tracksInThisDir,      // 曲目列表
+                cover: cover,                 // 专辑封面
+                path: dirPath                 // 专辑路径（用于排除）
+            });
+        }
+
+        // 递归扫描子目录
+        for (const subdir of subdirs) {
+            await scan(subdir, dirPath);
+        }
+    }
+
+    // 开始扫描
+    await scan(rootHandle, parentPath);
+    return results;
+}
+
+/**
+ * 渲染文件树（左侧导航栏）
+ */
+function renderFileTree() {
+    let html = '';
+
+    // 渲染漫画部分（每个漫画直接显示为可点击的条目）
+    if (comics.length > 0) {
+        html += '<div class="section-header">📖 漫画</div>';
+        html += comics.map((comic, comicIndex) => {
+            // ZIP 漫画显示📦图标，普通漫画显示文件夹图标
+            const icon = comic.isZip ? '📦' : '📁';
+            return `
+                <div class="comic-item ${comicIndex === currentComicIndex ? 'active' : ''}" data-comic-index="${comicIndex}">
+                    ${icon} ${comic.name}
+                </div>
+            `;
+        }).join('');
+    }
+
+    // 渲染音乐专辑部分
+    if (albums.length > 0) {
+        html += '<div class="section-header">🎵 音乐专辑</div>';
+        html += albums.map((album, albumIndex) => `
+            <div class="comic-folder album-folder" data-album-index="${albumIndex}">
+                <div class="comic-title album-title">${album.name}</div>
+                <div class="chapters">
+                    ${album.tracks.map((track, trackIndex) => `
+                        <div class="chapter track" data-album-index="${albumIndex}" data-track-index="${trackIndex}">
+                            ${track.name}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // 如果没有找到任何内容，显示提示
+    if (comics.length === 0 && albums.length === 0) {
+        html = '<div class="no-content" style="padding: 20px;">未找到漫画或音频文件夹</div>';
+    }
+
+    // 将 HTML 插入到文件树容器
+    fileTreeEl.innerHTML = html;
+
+    // 为漫画条目添加点击事件
+    document.querySelectorAll('.comic-item').forEach(item => {
+        item.addEventListener('click', async (e) => {
+            const comicIndex = parseInt(e.target.dataset.comicIndex);
+            await openComic(comicIndex);
+        });
+    });
+
+    // 为专辑标题添加点击事件（展开/收起）
+    document.querySelectorAll('.album-title').forEach(title => {
+        title.addEventListener('click', (e) => {
+            const folder = e.target.closest('.album-folder');
+            folder.classList.toggle('open');
+        });
+    });
+
+    // 为曲目添加点击事件
+    document.querySelectorAll('.track').forEach(track => {
+        track.addEventListener('click', async (e) => {
+            const albumIndex = parseInt(e.target.dataset.albumIndex);
+            const trackIndex = parseInt(e.target.dataset.trackIndex);
+            await openAlbum(albumIndex, trackIndex);
+        });
+    });
+}
+
+// ==================== 漫画阅读功能 ====================
+
+/**
+ * 显示控制元素（图片信息和导航提示）
+ */
+function showControls() {
+    // 清除之前的定时器
+    if (hideControlsTimeout) {
+        clearTimeout(hideControlsTimeout);
+    }
+    
+    // 显示控制元素
+    navHintEl.classList.remove('hidden');
+    viewerInfoEl.classList.remove('hidden');
+    navLeftBtn.classList.remove('hidden');
+    navRightBtn.classList.remove('hidden');
+    resetBtn.classList.remove('hidden');
+    navLeftBtn.style.display = 'flex';
+    navRightBtn.style.display = 'flex';
+    resetBtn.style.display = 'flex';
+    
+    // 设置自动隐藏定时器
+    hideControlsTimeout = setTimeout(() => {
+        hideControls();
+    }, CONTROLS_HIDE_DELAY);
+}
+
+/**
+ * 隐藏控制元素
+ */
+function hideControls() {
+    navHintEl.classList.add('hidden');
+    viewerInfoEl.classList.add('hidden');
+    navLeftBtn.classList.add('hidden');
+    navRightBtn.classList.add('hidden');
+    resetBtn.classList.add('hidden');
+}
+
+/**
+ * 打开指定漫画
+ * @param {number} comicIndex - 漫画索引
+ */
+async function openComic(comicIndex) {
+    // 停止音频播放
+    stopAudio();
+    
+    // 切换到漫画模式
+    currentMode = 'comic';
+    currentComicIndex = comicIndex;
+    currentComic = comics[comicIndex];
+    currentImageIndex = 0;
+    
+    // 检查是否为 ZIP 漫画且需要解压
+    if (currentComic.isZip && currentComic.images.length === 0) {
+        // 显示加载提示
+        fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">解压中...</div>';
+        
+        try {
+            // 获取 ZIP 文件
+            const file = await currentComic.handle.getFile();
+            // 使用 JSZip 解压
+            const zip = await JSZip.loadAsync(file);
+            
+            // 提取图片
+            const images = [];
+            const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+            
+            for (const [path, zipFile] of Object.entries(zip.files)) {
+                if (zipFile.dir) continue;
+                
+                const ext = path.toLowerCase().substring(path.lastIndexOf('.'));
+                if (imageExtensions.includes(ext)) {
+                    images.push({
+                        name: path,
+                        file: zipFile  // JSZip 文件对象
+                    });
+                }
+            }
+            
+            // 按文件名排序
+            images.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+            
+            // 更新漫画的图片列表
+            currentComic.images = images;
+            currentImages = images;
+            
+            // 重新渲染文件树
+            renderFileTree();
+            
+            // 更新选中状态
+            const comicEl = document.querySelector(`.comic-item[data-comic-index="${comicIndex}"]`);
+            if (comicEl) {
+                comicEl.classList.add('active');
+            }
+            
+        } catch (err) {
+            console.error('解压 ZIP 失败:', err);
+            fileTreeEl.innerHTML = `<div class="no-content" style="padding: 20px;">
+                解压失败：${err.message}
+            </div>`;
+            return;
+        }
+    } else {
+        currentImages = currentComic.images;
+    }
+
+    // 更新文件树中的选中状态
+    document.querySelectorAll('.comic-item').forEach(el => el.classList.remove('active'));
+    const comicEl = document.querySelector(`.comic-item[data-comic-index="${comicIndex}"]`);
+    if (comicEl) {
+        comicEl.classList.add('active');
+    }
+
+    // 隐藏音频播放器和视频播放器
+    audioPlayerEl.style.display = 'none';
+    videoPlayerEl.style.display = 'none';
+    // 恢复图片相关元素
+    document.querySelector('.image-container').style.display = 'flex';
+    document.querySelectorAll('.nav-btn').forEach(btn => btn.style.display = 'flex');
+    resetBtn.style.display = 'flex';
+    // 显示第一张图片
+    await showImage();
+}
+
+/**
+ * 更新图片变换（缩放和偏移）
+ */
+function updateImageTransform() {
+    viewerImageEl.style.transform = `translate(${imageOffsetX}px, ${imageOffsetY}px) scale(${imageScale})`;
+}
+
+/**
+ * 显示当前图片
+ */
+async function showImage() {
+    if (currentImages.length === 0) return;
+
+    // 获取当前图片
+    const image = currentImages[currentImageIndex];
+    let url;
+    
+    // 判断图片来源（ZIP 或 文件夹）
+    if (image.file) {
+        // ZIP 中的图片
+        const blob = await image.file.async('blob');
+        url = URL.createObjectURL(blob);
+    } else {
+        // 文件夹中的图片
+        const file = await image.handle.getFile();
+        url = URL.createObjectURL(file);
+    }
+
+    // 重置缩放和偏移
+    imageScale = 1;
+    imageOffsetX = 0;
+    imageOffsetY = 0;
+
+    // 设置图片源并显示
+    viewerImageEl.src = url;
+    viewerImageEl.style.display = 'block';
+    viewerImageEl.draggable = false; // 禁用默认拖拽
+    noContentEl.style.display = 'none';
+    // 显示控制元素和翻页按钮
+    showControls();
+    // 显示图片信息：漫画名 - 当前页/总页数
+    viewerInfoEl.textContent = `${currentComic.name} - ${currentImageIndex + 1}/${currentImages.length}`;
+}
+
+/**
+ * 下一页
+ * 支持跨漫画翻页
+ */
+async function nextPage() {
+    if (!currentComic || currentImages.length === 0) return;
+    
+    // 如果当前漫画还有下一页
+    if (currentImageIndex < currentImages.length - 1) {
+        currentImageIndex++;
+        await showImage();
+    } else if (currentComicIndex < comics.length - 1) {
+        // 当前漫画已读完，尝试打开下一部漫画
+        await openComic(currentComicIndex + 1);
+    }
+}
+
+/**
+ * 上一页
+ * 支持跨漫画翻页
+ */
+async function prevPage() {
+    if (!currentComic || currentImages.length === 0) return;
+    
+    // 如果当前漫画还有上一页
+    if (currentImageIndex > 0) {
+        currentImageIndex--;
+        await showImage();
+    } else if (currentComicIndex > 0) {
+        // 当前漫画已读完，尝试打开上一部漫画的最后一页
+        const newComicIndex = currentComicIndex - 1;
+        await openComic(newComicIndex);
+        // 跳转到上一部漫画的最后一页
+        currentImageIndex = comics[newComicIndex].images.length - 1;
+        await showImage();
+    }
+}
+
+/**
+ * 切换到下一部漫画
+ */
+async function nextComic() {
+    if (!currentComic || comics.length === 0) return;
+    
+    const newComicIndex = (currentComicIndex + 1) % comics.length;
+    await openComic(newComicIndex);
+}
+
+/**
+ * 切换到上一部漫画
+ */
+async function prevComic() {
+    if (!currentComic || comics.length === 0) return;
+    
+    const newComicIndex = (currentComicIndex - 1 + comics.length) % comics.length;
+    await openComic(newComicIndex);
+}
+
+// ==================== 音频播放功能 ====================
+
+/**
+ * 打开指定专辑
+ * @param {number} albumIndex - 专辑索引
+ * @param {number} trackIndex - 曲目索引
+ */
+async function openAlbum(albumIndex, trackIndex) {
+    // 停止当前音频播放
+    stopAudio();
+    
+    // 切换到音频模式
+    currentMode = 'audio';
+    currentAlbumIndex = albumIndex;
+    currentTrackIndex = trackIndex;
+    currentAlbum = albums[albumIndex];
+    currentTracks = currentAlbum.tracks;
+
+    // 更新文件树中的选中状态
+    document.querySelectorAll('.chapter').forEach(el => el.classList.remove('active'));
+    const trackEl = document.querySelector(`.chapter[data-album-index="${albumIndex}"][data-track-index="${trackIndex}"]`);
+    if (trackEl) {
+        trackEl.classList.add('active');
+        const albumFolder = trackEl.closest('.comic-folder');
+        if (albumFolder) albumFolder.classList.add('open');
+    }
+
+    // 隐藏漫画相关元素
+    viewerImageEl.style.display = 'none';
+    viewerInfoEl.style.display = 'none';
+    navHintEl.style.display = 'none';
+    noContentEl.style.display = 'none';
+    document.querySelector('.image-container').style.display = 'none';
+    document.querySelectorAll('.nav-btn').forEach(btn => btn.style.display = 'none');
+    resetBtn.style.display = 'none';
+    videoPlayerEl.style.display = 'none';
+    // 显示音频播放器
+    audioPlayerEl.style.display = 'flex';
+
+    // 显示专辑封面（如果有）
+    if (currentAlbum.cover) {
+        const file = await currentAlbum.cover.handle.getFile();
+        const url = URL.createObjectURL(file);
+        coverImageEl.src = url;
+        coverImageEl.style.display = 'block';
+        audioIconEl.style.display = 'none';
+    } else {
+        // 没有封面则显示默认图标
+        coverImageEl.style.display = 'none';
+        audioIconEl.style.display = 'block';
+    }
+
+    // 加载并播放指定曲目
+    await loadAndPlayTrack(currentTrackIndex);
+}
+
+/**
+ * 读取音频文件内嵌封面
+ * @param {File} file - 音频文件
+ */
+async function readAudioCover(file) {
+    const fileName = file.name.toLowerCase();
+    console.log('尝试读取封面:', fileName);
+    
+    // 如果是 FLAC 文件，使用自定义解析器
+    if (fileName.endsWith('.flac')) {
+        await readFlacCover(file);
+        return;
+    }
+    
+    // 其他格式使用 jsmediatags
+    jsmediatags.read(file, {
+        onSuccess: function(tag) {
+            const tags = tag.tags;
+            console.log('jsmediatags 成功:', fileName, tags);
+            
+            // 检查是否有图片标签（APIC 或 PIC）
+            let picture = null;
+            if (tags.picture) {
+                picture = tags.picture;
+            } else if (tags.APIC) {
+                picture = tags.APIC;
+            }
+            
+            if (picture) {
+                // 获取图片数据
+                const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(picture.data)));
+                const mimeType = picture.format || picture.data ? 'image/jpeg' : 'image/jpeg';
+                const imageUrl = `data:${mimeType};base64,${base64}`;
+                
+                console.log('找到封面:', mimeType, picture.data ? picture.data.length + ' bytes' : 'no data');
+                
+                // 显示内嵌封面
+                coverImageEl.src = imageUrl;
+                coverImageEl.style.display = 'block';
+                audioIconEl.style.display = 'none';
+            } else {
+                console.log('没有找到封面标签');
+            }
+        },
+        onError: function(error) {
+            console.log('读取封面失败:', fileName, error);
+        }
+    });
+}
+
+/**
+ * 读取 FLAC 文件内嵌封面
+ * @param {File} file - FLAC 文件
+ */
+async function readFlacCover(file) {
+    try {
+        const arrayBuffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        console.log('FLAC 文件大小:', bytes.length, 'bytes');
+        
+        // 检查 FLAC 标记
+        if (bytes[0] !== 0x66 || bytes[1] !== 0x4C || bytes[2] !== 0x61 || bytes[3] !== 0x43) {
+            console.log('不是有效的 FLAC 文件');
+            return; // 不是 FLAC 文件
+        }
+        
+        // 查找 metadata block
+        let offset = 4; // 跳过 "fLaC"
+        let blockCount = 0;
+        
+        while (offset < bytes.length) {
+            blockCount++;
+            const blockHeader = bytes[offset];
+            const isLast = (blockHeader & 0x80) !== 0;
+            const blockType = blockHeader & 0x7F;
+            const blockLength = (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3];
+            
+            console.log(`Block ${blockCount}: type=${blockType}, length=${blockLength}, isLast=${isLast}`);
+            
+            offset += 4;
+            
+            // PICTURE block (type 6)
+            if (blockType === 6) {
+                console.log('找到 PICTURE block!');
+                const pictureData = bytes.slice(offset, offset + blockLength);
+                const picture = parseFlacPicture(pictureData);
+                
+                if (picture) {
+                    console.log('解析图片成功:', picture.mimeType, picture.data.length, 'bytes');
+                    // 使用 Blob URL 避免 Data URL 过长问题
+                    const blob = new Blob([picture.data], { type: picture.mimeType });
+                    const imageUrl = URL.createObjectURL(blob);
+                    
+                    coverImageEl.src = imageUrl;
+                    coverImageEl.style.display = 'block';
+                    audioIconEl.style.display = 'none';
+                    return;
+                }
+            }
+            
+            offset += blockLength;
+            
+            if (isLast) break;
+        }
+        console.log('未找到 PICTURE block，共扫描了', blockCount, '个 blocks');
+    } catch (error) {
+        console.log('读取 FLAC 封面失败:', error);
+    }
+}
+
+/**
+ * 解析 FLAC PICTURE block
+ * @param {Uint8Array} data - PICTURE block 数据
+ */
+function parseFlacPicture(data) {
+    try {
+        let offset = 0;
+        
+        // 跳过 PICTURE_TYPE (4 bytes)
+        offset += 4;
+        
+        // 读取 MIME length 和 MIME type
+        const mimeLength = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
+        offset += 4;
+        
+        const mimeType = String.fromCharCode.apply(null, data.slice(offset, offset + mimeLength));
+        offset += mimeLength;
+        
+        // 跳过 DESCRIPTION
+        const descLength = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
+        offset += 4 + descLength;
+        
+        // 跳过宽高和颜色深度等信息 (width 4, height 4, depth 4, colors 4)
+        offset += 4 * 4;
+        
+        // 读取图片数据长度
+        const imageLength = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
+        offset += 4;
+        
+        // 读取图片数据
+        const imageData = data.slice(offset, offset + imageLength);
+        
+        return {
+            mimeType: mimeType,
+            data: imageData
+        };
+    } catch (error) {
+        console.log('解析 PICTURE block 失败:', error);
+        return null;
+    }
+}
+
+/**
+ * 分块转换 Uint8Array 到 Base64 Data URL
+ * 避免大文件导致的栈溢出
+ */
+function arrayBufferToBase64Url(data, mimeType) {
+    const CHUNK_SIZE = 0x8000; // 32KB 每块
+    let result = '';
+    
+    for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+        const chunk = data.slice(i, Math.min(i + CHUNK_SIZE, data.length));
+        const chars = String.fromCharCode.apply(null, chunk);
+        result += btoa(chars);
+    }
+    
+    return `data:${mimeType};base64,${result}`;
+}
+
+/**
+ * 加载并播放指定曲目
+ * @param {number} trackIndex - 曲目索引
+ */
+async function loadAndPlayTrack(trackIndex) {
+    // 边界检查
+    if (trackIndex < 0 || trackIndex >= currentTracks.length) return;
+    
+    // 更新当前曲目索引
+    currentTrackIndex = trackIndex;
+    const track = currentTracks[trackIndex];
+    
+    // 更新播放器界面信息
+    audioTitleEl.textContent = track.name;
+    audioAlbumEl.textContent = currentAlbum.name;
+    
+    // 清理旧的音频对象
+    if (audio) {
+        audio.pause();
+        audio = null;
+    }
+
+    // 从文件句柄获取文件并创建 Blob URL
+    const file = await track.handle.getFile();
+    const url = URL.createObjectURL(file);
+    
+    // 创建新的 Audio 对象
+    audio = new Audio(url);
+    audio.volume = audioVolumeEl.value / 100;
+    
+    // 读取音频文件内嵌封面
+    readAudioCover(file);
+    
+    // 音频元数据加载完成时更新总时长
+    audio.addEventListener('loadedmetadata', () => {
+        totalTimeEl.textContent = formatTime(audio.duration);
+    });
+    
+    // 音频播放时更新进度条
+    audio.addEventListener('timeupdate', updateProgress);
+    
+    // 音频播放结束时自动播放下一首
+    audio.addEventListener('ended', () => {
+        nextTrack();
+    });
+    
+    // 音频播放错误处理
+    audio.addEventListener('error', (e) => {
+        console.error('Audio playback error:', e);
+        alert(`无法播放 "${track.name}"\n\n原因：浏览器不支持此音频格式。\n\n请使用 MP3、M4A、OGG、WAV 或 FLAC 格式的音频文件。`);
+        audio = null;
+        isPlaying = false;
+        audioPlayPauseBtn.textContent = '▶';
+    });
+    
+    // 尝试播放音频
+    try {
+        await audio.play();
+        isPlaying = true;
+        audioPlayPauseBtn.textContent = '⏸';
+    } catch (err) {
+        console.error('Playback failed:', err);
+        alert(`播放失败: ${err.message}\n\n可能的原因：\n- 浏览器不支持此音频格式\n- 需要用户交互才能播放`);
+        audio = null;
+        isPlaying = false;
+        audioPlayPauseBtn.textContent = '▶';
+    }
+    
+    // 更新文件树中的选中状态
+    document.querySelectorAll('.chapter').forEach(el => el.classList.remove('active'));
+    const trackEl = document.querySelector(`.chapter[data-album-index="${currentAlbumIndex}"][data-track-index="${currentTrackIndex}"]`);
+    if (trackEl) trackEl.classList.add('active');
+}
+
+/**
+ * 播放音频
+ */
+function playAudio() {
+    if (audio && !isPlaying) {
+        audio.play();
+        isPlaying = true;
+        audioPlayPauseBtn.textContent = '⏸';
+    }
+}
+
+/**
+ * 暂停音频
+ */
+function pauseAudio() {
+    if (audio && isPlaying) {
+        audio.pause();
+        isPlaying = false;
+        audioPlayPauseBtn.textContent = '▶';
+    }
+}
+
+/**
+ * 停止音频播放
+ */
+function stopAudio() {
+    if (audio) {
+        audio.pause();
+        audio.currentTime = 0;
+        audio = null;
+    }
+    isPlaying = false;
+    audioPlayPauseBtn.textContent = '▶';
+}
+
+/**
+ * 下一首
+ * 支持跨专辑播放
+ */
+function nextTrack() {
+    // 如果当前专辑还有下一首
+    if (currentTrackIndex < currentTracks.length - 1) {
+        loadAndPlayTrack(currentTrackIndex + 1);
+    } else if (currentAlbumIndex < albums.length - 1) {
+        // 当前专辑已播放完，尝试播放下一部专辑
+        openAlbum(currentAlbumIndex + 1, 0);
+    }
+}
+
+/**
+ * 上一首
+ * 支持跨专辑播放
+ */
+function prevTrack() {
+    // 如果当前专辑还有上一首
+    if (currentTrackIndex > 0) {
+        loadAndPlayTrack(currentTrackIndex - 1);
+    } else if (currentAlbumIndex > 0) {
+        // 当前专辑已播放完，尝试播放上一部专辑的最后一首
+        const prevAlbum = albums[currentAlbumIndex - 1];
+        openAlbum(currentAlbumIndex - 1, prevAlbum.tracks.length - 1);
+    }
+}
+
+/**
+ * 更新进度条
+ */
+function updateProgress() {
+    if (!audio) return;
+    
+    // 计算播放进度百分比
+    const progress = (audio.currentTime / audio.duration) * 100;
+    progressFillEl.style.width = `${progress}%`;
+    progressHandleEl.style.left = `${progress}%`;
+    // 更新当前时间显示
+    currentTimeEl.textContent = formatTime(audio.currentTime);
+}
+
+/**
+ * 格式化时间（秒 -> 分:秒）
+ * @param {number} seconds - 秒数
+ * @returns {string} 格式化后的时间字符串
+ */
+function formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+/**
+ * 跳转到指定位置
+ * @param {MouseEvent} e - 鼠标事件
+ */
+function seekTo(e) {
+    if (!audio) return;
+    
+    // 计算点击位置在进度条中的百分比
+    const rect = progressBarEl.getBoundingClientRect();
+    const percent = (e.clientX - rect.left) / rect.width;
+    audio.currentTime = percent * audio.duration;
+}
+
+// ==================== 播放器控制事件 ====================
+
+// 播放/暂停按钮点击事件
+audioPlayPauseBtn.addEventListener('click', () => {
+    if (isPlaying) {
+        pauseAudio();
+    } else {
+        playAudio();
+    }
+});
+
+// 上一首按钮点击事件
+audioPrevBtn.addEventListener('click', () => {
+    if (currentMode === 'audio') {
+        prevTrack();
+    }
+});
+
+// 下一首按钮点击事件
+audioNextBtn.addEventListener('click', () => {
+    if (currentMode === 'audio') {
+        nextTrack();
+    }
+});
+
+// 进度条点击事件（跳转）
+progressBarEl.addEventListener('click', seekTo);
+
+// 音量滑块输入事件
+audioVolumeEl.addEventListener('input', () => {
+    if (audio) {
+        audio.volume = audioVolumeEl.value / 100;
+    }
+});
+
+// ==================== 视频播放器事件 ====================
+
+const videoPlayerEl = document.getElementById('videoPlayer');
+const videoElementEl = document.getElementById('videoElement');
+const videoControlsEl = document.getElementById('videoControls');
+const videoPlayPauseBtn = document.getElementById('videoPlayPause');
+const videoPrevBtn = document.getElementById('videoPrev');
+const videoNextBtn = document.getElementById('videoNext');
+const videoProgressBarEl = document.getElementById('videoProgressBar');
+const videoProgressFillEl = document.getElementById('videoProgressFill');
+const videoTimeEl = document.getElementById('videoTime');
+const videoVolumeEl = document.getElementById('videoVolume');
+
+// 视频播放/暂停
+videoPlayPauseBtn.addEventListener('click', () => {
+    if (videoElement.paused) {
+        videoElement.play();
+        videoPlayPauseBtn.textContent = '⏸';
+    } else {
+        videoElement.pause();
+        videoPlayPauseBtn.textContent = '▶';
+    }
+});
+
+// 视频点击切换播放/暂停
+videoElementEl.addEventListener('click', () => {
+    if (videoElement.paused) {
+        videoElement.play();
+        videoPlayPauseBtn.textContent = '⏸';
+    } else {
+        videoElement.pause();
+        videoPlayPauseBtn.textContent = '▶';
+    }
+});
+
+// 视频进度更新
+videoElementEl.addEventListener('timeupdate', () => {
+    if (videoElement.duration) {
+        const percent = (videoElement.currentTime / videoElement.duration) * 100;
+        videoProgressFillEl.style.width = percent + '%';
+        videoTimeEl.textContent = `${formatTime(videoElement.currentTime)} / ${formatTime(videoElement.duration)}`;
+    }
+});
+
+// 视频播放结束
+videoElementEl.addEventListener('ended', () => {
+    if (videoLoop) {
+        // 循环播放当前视频
+        videoElement.currentTime = 0;
+        videoElement.play();
+    } else if (videoAutoNext && currentVideoIndex < videos.length - 1) {
+        // 自动连播下一个视频
+        playVideo(currentVideoIndex + 1);
+    } else {
+        // 停止播放
+        videoPlayPauseBtn.textContent = '▶';
+    }
+});
+
+// 视频进度条点击跳转
+videoProgressBarEl.addEventListener('click', (e) => {
+    const rect = videoProgressBarEl.getBoundingClientRect();
+    const percent = (e.clientX - rect.left) / rect.width;
+    videoElement.currentTime = videoElement.duration * percent;
+});
+
+// 视频音量控制
+videoVolumeEl.addEventListener('input', () => {
+    videoElement.volume = videoVolumeEl.value / 100;
+});
+
+// 视频鼠标移动显示控制条
+videoPlayerEl.addEventListener('mousemove', () => {
+    if (currentMode === 'video') {
+        videoControlsEl.classList.remove('hidden');
+        clearTimeout(hideControlsTimeout);
+        hideControlsTimeout = setTimeout(() => {
+            videoControlsEl.classList.add('hidden');
+        }, CONTROLS_HIDE_DELAY);
+    }
+});
+
+// 上一视频
+videoPrevBtn.addEventListener('click', () => {
+    if (currentVideoIndex > 0) {
+        playVideo(currentVideoIndex - 1);
+    }
+});
+
+// 下一视频
+videoNextBtn.addEventListener('click', () => {
+    if (currentVideoIndex < videos.length - 1) {
+        playVideo(currentVideoIndex + 1);
+    }
+});
+
+// 循环播放按钮
+const videoLoopBtnEl = document.getElementById('videoLoopBtn');
+videoLoopBtnEl.addEventListener('click', () => {
+    videoLoop = !videoLoop;
+    videoLoopBtnEl.classList.toggle('active', videoLoop);
+    if (videoLoop && videoAutoNext) {
+        videoAutoNext = false;
+        document.getElementById('videoAutoNextBtn').classList.remove('active');
+    }
+});
+
+// 自动连播按钮
+const videoAutoNextBtnEl = document.getElementById('videoAutoNextBtn');
+videoAutoNextBtnEl.addEventListener('click', () => {
+    videoAutoNext = !videoAutoNext;
+    videoAutoNextBtnEl.classList.toggle('active', videoAutoNext);
+    if (videoAutoNext && videoLoop) {
+        videoLoop = false;
+        videoLoopBtnEl.classList.remove('active');
+    }
+});
+
+/**
+ * 格式化时间
+ * @param {number} seconds - 秒数
+ */
+function formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// ==================== 键盘快捷键 ====================
+
+/**
+ * 全局键盘事件监听
+ * 漫画模式：左右键翻页
+ * 音频模式：左右键切歌，空格键播放/暂停
+ * 视频模式：左右键切视频，空格键播放/暂停
+ */
+document.addEventListener('keydown', (e) => {
+    if (currentMode === 'audio') {
+        // 音频模式快捷键
+        if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+            e.preventDefault();
+            nextTrack();
+        } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+            e.preventDefault();
+            prevTrack();
+        } else if (e.key === ' ' || e.code === 'Space') {
+            e.preventDefault();
+            if (isPlaying) {
+                pauseAudio();
+            } else {
+                playAudio();
+            }
+        }
+    } else if (currentMode === 'video') {
+        // 视频模式快捷键
+        if (e.ctrlKey && e.key === 'ArrowRight') {
+            // Ctrl+右箭头：下一个视频
+            e.preventDefault();
+            if (currentVideoIndex < videos.length - 1) {
+                playVideo(currentVideoIndex + 1);
+            }
+        } else if (e.ctrlKey && e.key === 'ArrowLeft') {
+            // Ctrl+左箭头：上一个视频
+            e.preventDefault();
+            if (currentVideoIndex > 0) {
+                playVideo(currentVideoIndex - 1);
+            }
+        } else if (e.key === 'ArrowRight') {
+            // 右箭头：快进 1 秒
+            e.preventDefault();
+            videoElement.currentTime = Math.min(videoElement.currentTime + 1, videoElement.duration);
+        } else if (e.key === 'ArrowLeft') {
+            // 左箭头：快退 1 秒
+            e.preventDefault();
+            videoElement.currentTime = Math.max(videoElement.currentTime - 1, 0);
+        } else if (e.key === 'ArrowUp') {
+            // 上箭头：增加音量
+            e.preventDefault();
+            videoElement.volume = Math.min(videoElement.volume + 0.1, 1);
+            videoVolumeEl.value = videoElement.volume * 100;
+        } else if (e.key === 'ArrowDown') {
+            // 下箭头：降低音量
+            e.preventDefault();
+            videoElement.volume = Math.max(videoElement.volume - 0.1, 0);
+            videoVolumeEl.value = videoElement.volume * 100;
+        } else if (e.key === ' ') {
+            // 空格：播放/暂停
+            e.preventDefault();
+            if (videoElement.paused) {
+                videoElement.play();
+                videoPlayPauseBtn.textContent = '⏸';
+            } else {
+                videoElement.pause();
+                videoPlayPauseBtn.textContent = '▶';
+            }
+        }
+    } else {
+        // 漫画模式快捷键
+        if (e.ctrlKey && e.key === 'ArrowRight') {
+            // Ctrl+右箭头：切换到下一部漫画
+            e.preventDefault();
+            nextComic();
+        } else if (e.ctrlKey && e.key === 'ArrowLeft') {
+            // Ctrl+左箭头：切换到上一部漫画
+            e.preventDefault();
+            prevComic();
+        } else if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+            // 右箭头或PageDown：下一页
+            e.preventDefault();
+            nextPage();
+        } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+            // 左箭头或PageUp：上一页
+            e.preventDefault();
+            prevPage();
+        }
+    }
+});
+
+// ==================== 鼠标交互 ====================
+
+/**
+ * 鼠标移动事件 - 显示控制元素
+ */
+viewerEl.addEventListener('mousemove', () => {
+    if (currentMode === 'comic' && currentImages.length > 0) {
+        showControls();
+    }
+});
+
+// ==================== 自动载入文件 ====================
+
+/**
+ * IndexedDB 数据库操作
+ */
+const DB_NAME = 'PicLookDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'folderHandles';
+
+/**
+ * 打开 IndexedDB 数据库
+ */
+function openDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                db.createObjectStore(STORE_NAME);
+            }
+        };
+    });
+}
+
+/**
+ * 保存文件夹句柄到 IndexedDB
+ */
+async function saveFolderHandle(dirHandle) {
+    try {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction(STORE_NAME, 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.put(dirHandle, 'lastFolder');
+            request.onerror = () => {
+                db.close();
+                reject(request.error);
+            };
+            request.onsuccess = () => {
+                db.close();
+                resolve();
+            };
+        });
+    } catch (err) {
+        console.error('保存文件夹句柄失败:', err);
+    }
+}
+
+/**
+ * 从 IndexedDB 读取文件夹句柄
+ */
+async function getFolderHandle() {
+    try {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction(STORE_NAME, 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.get('lastFolder');
+            request.onerror = () => {
+                db.close();
+                reject(request.error);
+            };
+            request.onsuccess = () => {
+                db.close();
+                resolve(request.result);
+            };
+        });
+    } catch (err) {
+        console.error('读取文件夹句柄失败:', err);
+        return null;
+    }
+}
+
+/**
+ * 自动加载上次的文件夹
+ */
+async function autoLoadLastFolder() {
+    if (!autoLoadEnabled) return;
+    
+    try {
+        const dirHandle = await getFolderHandle();
+        if (!dirHandle) {
+            console.log('没有保存的文件夹');
+            return;
+        }
+        
+        // 验证权限
+        const permission = await dirHandle.queryPermission({ mode: 'read' });
+        if (permission === 'granted') {
+            // 有权限，直接加载
+            console.log('自动加载上次文件夹:', dirHandle.name);
+            fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">加载中...</div>';
+            await loadMedia(dirHandle);
+        } else {
+            // 尝试请求权限
+            const requestPermission = await dirHandle.requestPermission({ mode: 'read' });
+            if (requestPermission === 'granted') {
+                console.log('重新获得权限，加载文件夹:', dirHandle.name);
+                fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">加载中...</div>';
+                await loadMedia(dirHandle);
+            } else {
+                console.log('用户拒绝了文件夹访问权限');
+            }
+        }
+    } catch (err) {
+        console.error('自动加载失败:', err);
+    }
+}
+
+/**
+ * 页面加载完成后执行
+ * 自动加载上次的文件夹
+ */
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOMContentLoaded: 尝试自动加载');
+    autoLoadLastFolder();
+});
+
+</script>
