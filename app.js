@@ -41,6 +41,15 @@ let dragStartY = 0;                       // 拖动起始 Y 坐标
 let dragStartOffsetX = 0;                 // 拖动起始时的水平偏移
 let dragStartOffsetY = 0;                 // 拖动起始时的垂直偏移
 
+// 音频可视化相关变量
+let audioContext = null;                  // 音频上下文
+let analyser = null;                      // 分析器节点
+let audioSource = null;                   // 音频源节点
+let visualizerCanvas = null;              // 可视化 Canvas 元素
+let visualizerCtx = null;                 // Canvas 2D 上下文
+let animationId = null;                    // 动画帧 ID
+let dataArray = null;                      // 音频数据数组
+
 // ==================== DOM 元素获取 ====================
 
 // 界面元素
@@ -75,6 +84,7 @@ const totalTimeEl = document.getElementById('totalTime');
 const audioVolumeEl = document.getElementById('audioVolume');
 const coverImageEl = document.getElementById('coverImage');
 const audioIconEl = document.getElementById('audioIcon');
+const visualizerCanvasEl = document.getElementById('audioVisualizer');
 
 // 视频播放器元素
 const videoPlayerEl = document.getElementById('videoPlayer');
@@ -768,6 +778,8 @@ async function openAlbum(albumIndex, trackIndex) {
     videoPlayerEl.style.display = 'none';
     audioPlayerEl.style.display = 'flex';
 
+    initAudioVisualizer();
+
     if (currentAlbum.cover) {
         const file = await currentAlbum.cover.handle.getFile();
         const url = URL.createObjectURL(file);
@@ -951,6 +963,7 @@ async function loadAndPlayTrack(trackIndex) {
         await audio.play();
         isPlaying = true;
         audioPlayPauseBtn.textContent = '⏸';
+        connectAudioToVisualizer();
     } catch (err) {
         console.error('Playback failed:', err);
         alert(`播放失败: ${err.message}\n\n可能的原因：\n- 浏览器不支持此音频格式\n- 需要用户交互才能播放`);
@@ -969,6 +982,7 @@ function playAudio() {
         audio.play();
         isPlaying = true;
         audioPlayPauseBtn.textContent = '⏸';
+        startVisualizerAnimation();
     }
 }
 
@@ -977,10 +991,12 @@ function pauseAudio() {
         audio.pause();
         isPlaying = false;
         audioPlayPauseBtn.textContent = '▶';
+        stopVisualizerAnimation();
     }
 }
 
 function stopAudio() {
+    stopVisualizerAnimation();
     if (audio) {
         audio.pause();
         audio.currentTime = 0;
@@ -1326,3 +1342,169 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('DOMContentLoaded: 尝试自动加载');
     autoLoadLastFolder();
 });
+
+// ==================== 音频可视化功能 ====================
+
+function initAudioVisualizer() {
+    // 初始化 Canvas
+    visualizerCanvas = visualizerCanvasEl;
+    visualizerCtx = visualizerCanvas.getContext('2d');
+    
+    // 设置 Canvas 尺寸
+    const rect = visualizerCanvas.getBoundingClientRect();
+    visualizerCanvas.width = rect.width * window.devicePixelRatio;
+    visualizerCanvas.height = rect.height * window.devicePixelRatio;
+    visualizerCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    
+    // 初始化音频上下文和分析器
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;  // 设置 FFT 大小，影响频率分辨率
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
+    }
+    
+    // 初始绘制静态波形
+    drawStaticWaveform();
+}
+
+function connectAudioToVisualizer() {
+    if (!audio || !audioContext || !analyser) return;
+    
+    // 如果音频源已存在，先断开
+    if (audioSource) {
+        audioSource.disconnect();
+    }
+    
+    // 创建新的音频源并连接到分析器
+    audioSource = audioContext.createMediaElementSource(audio);
+    audioSource.connect(analyser);
+    analyser.connect(audioContext.destination);
+    
+    // 开始动画
+    startVisualizerAnimation();
+}
+
+function startVisualizerAnimation() {
+    if (!visualizerCtx || !analyser) return;
+    
+    function draw() {
+        animationId = requestAnimationFrame(draw);
+        
+        // 获取频率数据
+        analyser.getByteFrequencyData(dataArray);
+        
+        // 获取 Canvas 实际尺寸
+        const width = visualizerCanvas.width / window.devicePixelRatio;
+        const height = visualizerCanvas.height / window.devicePixelRatio;
+        
+        // 清除画布
+        visualizerCtx.clearRect(0, 0, width, height);
+        
+        // 绘制频谱柱状图
+        drawFrequencyBars(width, height);
+        
+        // 绘制波浪线
+        drawWaveform(width, height);
+    }
+    
+    draw();
+}
+
+function stopVisualizerAnimation() {
+    if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+    }
+    
+    // 绘制静态波形
+    if (visualizerCtx) {
+        drawStaticWaveform();
+    }
+}
+
+function drawStaticWaveform() {
+    if (!visualizerCtx || !visualizerCanvas) return;
+    
+    const width = visualizerCanvas.width / window.devicePixelRatio;
+    const height = visualizerCanvas.height / window.devicePixelRatio;
+    
+    visualizerCtx.clearRect(0, 0, width, height);
+    
+    // 绘制底部静态线
+    visualizerCtx.beginPath();
+    visualizerCtx.strokeStyle = 'rgba(155, 89, 182, 0.3)';
+    visualizerCtx.lineWidth = 2;
+    visualizerCtx.moveTo(0, height / 2);
+    visualizerCtx.lineTo(width, height / 2);
+    visualizerCtx.stroke();
+}
+
+function drawFrequencyBars(width, height) {
+    const barCount = 32;  // 频谱柱数量
+    const barWidth = width / barCount - 2;
+    const gap = 2;
+    
+    // 计算每个柱的宽度
+    const barAreaWidth = width / barCount;
+    
+    for (let i = 0; i < barCount; i++) {
+        // 从数据数组中获取对应的频率值
+        const dataIndex = Math.floor(i * dataArray.length / barCount);
+        const value = dataArray[dataIndex];
+        
+        // 将值映射到高度
+        const barHeight = (value / 255) * (height / 2 - 5);
+        
+        // 顶部柱
+        const x = i * barAreaWidth + gap / 2;
+        
+        // 创建渐变色
+        const gradient = visualizerCtx.createLinearGradient(0, height / 2 - barHeight, 0, height / 2 + barHeight);
+        gradient.addColorStop(0, 'rgba(155, 89, 182, 0.9)');
+        gradient.addColorStop(0.5, 'rgba(142, 68, 173, 0.7)');
+        gradient.addColorStop(1, 'rgba(155, 89, 182, 0.9)');
+        
+        // 绘制顶部柱（向上）
+        visualizerCtx.fillStyle = gradient;
+        visualizerCtx.fillRect(x, height / 2 - barHeight, barWidth, barHeight);
+        
+        // 绘制底部柱（向下）
+        visualizerCtx.fillRect(x, height / 2, barWidth, barHeight);
+        
+        // 添加高光效果
+        visualizerCtx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+        visualizerCtx.fillRect(x, height / 2 - barHeight, barWidth, 2);
+        visualizerCtx.fillRect(x, height / 2 + barHeight - 2, barWidth, 2);
+    }
+}
+
+function drawWaveform(width, height) {
+    // 获取波形数据
+    analyser.getByteTimeDomainData(dataArray);
+    
+    // 绘制波浪线
+    visualizerCtx.beginPath();
+    visualizerCtx.strokeStyle = 'rgba(155, 89, 182, 0.6)';
+    visualizerCtx.lineWidth = 2;
+    visualizerCtx.lineCap = 'round';
+    visualizerCtx.lineJoin = 'round';
+    
+    const sliceWidth = width / dataArray.length;
+    let x = 0;
+    
+    for (let i = 0; i < dataArray.length; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = (v * height / 2) + (height / 4);
+        
+        if (i === 0) {
+            visualizerCtx.moveTo(x, y);
+        } else {
+            visualizerCtx.lineTo(x, y);
+        }
+        
+        x += sliceWidth;
+    }
+    
+    visualizerCtx.stroke();
+}
