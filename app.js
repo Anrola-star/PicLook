@@ -3,6 +3,112 @@
 // 自定义配置
 let autoLoadEnabled = true;
 
+// ==================== 设置持久化（localStorage，不依赖额外文件） ====================
+
+const SETTINGS_KEY = 'PicLookSettings';
+
+function loadSettings() {
+    try {
+        return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
+    } catch (e) {
+        return {};
+    }
+}
+
+let settings = loadSettings();
+
+function saveSettings() {
+    try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch (e) {
+        console.error('保存设置失败:', e);
+    }
+}
+
+let lastProgressSave = 0;
+let isRestoringProgress = false;
+
+// ==================== 进度记忆 ====================
+
+function saveComicProgress() {
+    if (!currentComic) return;
+    settings.mode = 'comic';
+    settings.comic = { comicIndex: currentComicIndex, pageIndex: currentImageIndex };
+    saveSettings();
+}
+
+function saveAudioProgress(timeOverride) {
+    const t = typeof timeOverride === 'number' ? timeOverride : (audio ? audio.currentTime : 0);
+    settings.mode = 'audio';
+    settings.audio = { albumIndex: currentAlbumIndex, trackIndex: currentTrackIndex, time: t };
+    saveSettings();
+}
+
+function saveVideoProgress(timeOverride) {
+    const t = typeof timeOverride === 'number' ? timeOverride : (videoElement ? videoElement.currentTime : 0);
+    settings.mode = 'video';
+    settings.video = { index: currentVideoIndex, time: t };
+    saveSettings();
+}
+
+function saveProgressThrottled() {
+    const now = Date.now();
+    if (now - lastProgressSave < 3000) return;
+    lastProgressSave = now;
+    if (currentMode === 'audio') saveAudioProgress();
+    else if (currentMode === 'video') saveVideoProgress();
+}
+
+async function restoreComicProgress() {
+    const p = settings.comic;
+    if (!p || comics.length === 0) return;
+    let ci = p.comicIndex;
+    if (ci < 0 || ci >= comics.length) ci = 0;
+    await openComic(ci);
+    const pg = Math.min(p.pageIndex || 0, currentImages.length - 1);
+    currentImageIndex = pg;
+    await showImage();
+}
+
+async function restoreAudioProgress() {
+    const p = settings.audio;
+    if (!p || albums.length === 0) return;
+    let ai = p.albumIndex;
+    let ti = p.trackIndex;
+    if (ai < 0 || ai >= albums.length) { ai = 0; ti = 0; }
+    const album = albums[ai];
+    if (!album) return;
+    if (ti < 0 || ti >= album.tracks.length) ti = 0;
+    isRestoringProgress = true;
+    try {
+        await openAlbum(ai, ti);
+        if (audio && p.time > 1) {
+            audio.addEventListener('loadedmetadata', () => {
+                if (audio.duration && p.time < audio.duration) {
+                    audio.currentTime = p.time;
+                }
+            }, { once: true });
+        }
+    } finally {
+        isRestoringProgress = false;
+    }
+}
+
+async function restoreVideoProgress() {
+    const p = settings.video;
+    if (!p || videos.length === 0) return;
+    let vi = p.index;
+    if (vi < 0 || vi >= videos.length) vi = 0;
+    await playVideo(vi);
+    if (p.time > 1 && videoElement) {
+        videoElement.addEventListener('loadedmetadata', () => {
+            if (videoElement.duration && p.time < videoElement.duration) {
+                videoElement.currentTime = p.time;
+            }
+        }, { once: true });
+    }
+}
+
 // 漫画相关数据
 let comics = [];                          // 所有漫画列表
 let currentComic = null;                  // 当前正在阅读的漫画
@@ -66,8 +172,49 @@ const navRightBtn = document.getElementById('navRightBtn');
 const resetBtn = document.getElementById('resetBtn');
 const imageContainerEl = document.getElementById('imageContainer');
 
+// 侧边栏控制元素
+const sidebarToggleBtn = document.getElementById('sidebarToggle');
+const sidebarBackdropEl = document.getElementById('sidebarBackdrop');
+
 // 下拉菜单状态
 let isDropdownOpen = false;
+
+// ==================== 侧边栏控制 ====================
+
+const isMobileView = () => !window.matchMedia('(min-width: 641px)').matches;
+let sidebarOpen = !isMobileView();
+
+function setSidebar(open) {
+    sidebarOpen = open;
+    document.body.classList.toggle('sidebar-open', open);
+    document.body.classList.toggle('sidebar-hidden', !open);
+    sidebarToggleBtn.classList.toggle('active', open);
+}
+
+function toggleSidebar() {
+    setSidebar(!sidebarOpen);
+}
+
+function closeSidebar() {
+    setSidebar(false);
+}
+
+sidebarToggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleSidebar();
+});
+
+sidebarBackdropEl.addEventListener('click', () => {
+    closeSidebar();
+});
+
+// 移动端选中项目后自动收起抽屉
+fileTreeEl.addEventListener('click', (e) => {
+    const target = e.target.closest('.comic-item, .track, .video-item');
+    if (target && isMobileView()) {
+        closeSidebar();
+    }
+});
 
 // 音频播放器元素
 const audioPlayerEl = document.getElementById('audioPlayer');
@@ -219,8 +366,10 @@ async function importImages() {
         const dirHandle = await window.showDirectoryPicker();
         console.log('导入图片:', dirHandle);
         fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">加载中...</div>';
-        await loadComics(dirHandle);
+        settings.lastImportType = 'image';
+        saveSettings();
         await saveFolderHandle(dirHandle);
+        await loadComics(dirHandle);
     } catch (err) {
         console.error('导入图片失败:', err);
         if (err.name !== 'AbortError') {
@@ -237,6 +386,9 @@ async function importMusic() {
         const dirHandle = await window.showDirectoryPicker();
         console.log('导入音乐:', dirHandle);
         fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">加载中...</div>';
+        settings.lastImportType = 'music';
+        saveSettings();
+        await saveFolderHandle(dirHandle);
         await loadMusic(dirHandle);
     } catch (err) {
         console.error('导入音乐失败:', err);
@@ -272,22 +424,10 @@ async function importVideo() {
     try {
         const dirHandle = await window.showDirectoryPicker();
         console.log('导入视频:', dirHandle);
-        fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">扫描中...</div>';
-        
-        videos = [];
-        await scanVideoFiles(dirHandle, '');
-        
-        if (videos.length === 0) {
-            fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">未找到视频文件</div>';
-            return;
-        }
-        
-        renderVideoList();
-        
-        if (videos.length > 0) {
-            await playVideo(0);
-        }
-        
+        settings.lastImportType = 'video';
+        saveSettings();
+        await saveFolderHandle(dirHandle);
+        await loadVideoFromHandle(dirHandle);
     } catch (err) {
         console.error('导入视频失败:', err);
         if (err.name !== 'AbortError') {
@@ -295,6 +435,24 @@ async function importVideo() {
                 错误：${err.message}
             </div>`;
         }
+    }
+}
+
+async function loadVideoFromHandle(dirHandle) {
+    fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">扫描中...</div>';
+
+    videos = [];
+    await scanVideoFiles(dirHandle, '');
+
+    if (videos.length === 0) {
+        fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">未找到视频文件</div>';
+        return;
+    }
+
+    renderVideoList();
+
+    if (videos.length > 0) {
+        await playVideo(0);
     }
 }
 
@@ -339,16 +497,18 @@ async function playVideo(index) {
     
     currentVideoIndex = index;
     const video = videos[index];
-    
+
     currentMode = 'video';
-    
+    saveVideoProgress(0);
+
     const file = await video.handle.getFile();
     const url = URL.createObjectURL(file);
-    
+
     if (!videoElement) {
         videoElement = document.getElementById('videoElement');
     }
     videoElement.src = url;
+    videoElement.volume = videoVolumeEl.value / 100;
     
     document.getElementById('videoProgressFill').style.width = '0%';
     document.getElementById('videoTime').textContent = '0:00 / 0:00';
@@ -599,7 +759,9 @@ function showControls() {
     navLeftBtn.style.display = 'flex';
     navRightBtn.style.display = 'flex';
     resetBtn.style.display = 'flex';
-    
+    navHintEl.style.display = 'block';
+    viewerInfoEl.style.display = 'block';
+
     hideControlsTimeout = setTimeout(() => {
         hideControls();
     }, CONTROLS_HIDE_DELAY);
@@ -708,6 +870,7 @@ async function showImage() {
     noContentEl.style.display = 'none';
     showControls();
     viewerInfoEl.textContent = `${currentComic.name} - ${currentImageIndex + 1}/${currentImages.length}`;
+    saveComicProgress();
 }
 
 async function nextPage() {
@@ -924,29 +1087,34 @@ async function loadAndPlayTrack(trackIndex) {
     
     currentTrackIndex = trackIndex;
     const track = currentTracks[trackIndex];
-    
+
     audioTitleEl.textContent = track.name;
     audioAlbumEl.textContent = currentAlbum.name;
-    
+
     if (audio) {
         audio.pause();
         audio = null;
     }
+    saveAudioProgress(0);
 
     const file = await track.handle.getFile();
     const url = URL.createObjectURL(file);
-    
+
     audio = new Audio(url);
     audio.volume = audioVolumeEl.value / 100;
-    
+
     readAudioCover(file);
-    
+
     audio.addEventListener('loadedmetadata', () => {
         totalTimeEl.textContent = formatTime(audio.duration);
     });
-    
+
     audio.addEventListener('timeupdate', updateProgress);
-    
+    audio.addEventListener('timeupdate', saveProgressThrottled);
+    audio.addEventListener('pause', () => {
+        saveAudioProgress();
+    });
+
     audio.addEventListener('ended', () => {
         nextTrack();
     });
@@ -957,19 +1125,24 @@ async function loadAndPlayTrack(trackIndex) {
         audio = null;
         isPlaying = false;
         audioPlayPauseBtn.textContent = '▶';
+        audioPlayerEl.classList.remove('playing');
     });
-    
+
     try {
         await audio.play();
         isPlaying = true;
         audioPlayPauseBtn.textContent = '⏸';
+        audioPlayerEl.classList.add('playing');
         connectAudioToVisualizer();
     } catch (err) {
         console.error('Playback failed:', err);
-        alert(`播放失败: ${err.message}\n\n可能的原因：\n- 浏览器不支持此音频格式\n- 需要用户交互才能播放`);
+        if (!isRestoringProgress) {
+            alert(`播放失败: ${err.message}\n\n可能的原因：\n- 浏览器不支持此音频格式\n- 需要用户交互才能播放`);
+        }
         audio = null;
         isPlaying = false;
         audioPlayPauseBtn.textContent = '▶';
+        audioPlayerEl.classList.remove('playing');
     }
     
     document.querySelectorAll('.chapter').forEach(el => el.classList.remove('active'));
@@ -982,6 +1155,7 @@ function playAudio() {
         audio.play();
         isPlaying = true;
         audioPlayPauseBtn.textContent = '⏸';
+        audioPlayerEl.classList.add('playing');
         startVisualizerAnimation();
     }
 }
@@ -991,12 +1165,14 @@ function pauseAudio() {
         audio.pause();
         isPlaying = false;
         audioPlayPauseBtn.textContent = '▶';
+        audioPlayerEl.classList.remove('playing');
         stopVisualizerAnimation();
     }
 }
 
 function stopAudio() {
     stopVisualizerAnimation();
+    audioPlayerEl.classList.remove('playing');
     if (audio) {
         audio.pause();
         audio.currentTime = 0;
@@ -1074,6 +1250,8 @@ audioVolumeEl.addEventListener('input', () => {
     if (audio) {
         audio.volume = audioVolumeEl.value / 100;
     }
+    settings.audioVolume = parseInt(audioVolumeEl.value);
+    saveSettings();
 });
 
 // ==================== 视频播放器事件 ====================
@@ -1104,9 +1282,15 @@ videoElementEl.addEventListener('timeupdate', () => {
         videoProgressFillEl.style.width = percent + '%';
         videoTimeEl.textContent = `${formatTime(videoElement.currentTime)} / ${formatTime(videoElement.duration)}`;
     }
+    saveProgressThrottled();
+});
+
+videoElementEl.addEventListener('pause', () => {
+    saveVideoProgress();
 });
 
 videoElementEl.addEventListener('ended', () => {
+    saveVideoProgress();
     if (videoLoop) {
         videoElement.currentTime = 0;
         videoElement.play();
@@ -1125,6 +1309,8 @@ videoProgressBarEl.addEventListener('click', (e) => {
 
 videoVolumeEl.addEventListener('input', () => {
     videoElement.volume = videoVolumeEl.value / 100;
+    settings.videoVolume = parseInt(videoVolumeEl.value);
+    saveSettings();
 });
 
 videoPlayerEl.addEventListener('mousemove', () => {
@@ -1170,6 +1356,10 @@ videoAutoNextBtnEl.addEventListener('click', () => {
 // ==================== 键盘快捷键 ====================
 
 document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sidebarOpen && isMobileView()) {
+        closeSidebar();
+        return;
+    }
     if (currentMode === 'audio') {
         if (e.key === 'ArrowRight' || e.key === 'PageDown') {
             e.preventDefault();
@@ -1308,37 +1498,58 @@ async function getFolderHandle() {
     }
 }
 
+async function loadFolderByType(dirHandle, type) {
+    if (type === 'music') {
+        await loadMusic(dirHandle);
+        await restoreAudioProgress();
+    } else if (type === 'video') {
+        await loadVideoFromHandle(dirHandle);
+        await restoreVideoProgress();
+    } else {
+        await loadMedia(dirHandle);
+        if (settings.mode === 'audio' && albums.length > 0) {
+            await restoreAudioProgress();
+        } else {
+            await restoreComicProgress();
+        }
+    }
+}
+
 async function autoLoadLastFolder() {
     if (!autoLoadEnabled) return;
-    
+
     try {
         const dirHandle = await getFolderHandle();
         if (!dirHandle) {
             console.log('没有保存的文件夹');
             return;
         }
-        
-        const permission = await dirHandle.queryPermission({ mode: 'read' });
-        if (permission === 'granted') {
-            console.log('自动加载上次文件夹:', dirHandle.name);
-            fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">加载中...</div>';
-            await loadMedia(dirHandle);
-        } else {
-            const requestPermission = await dirHandle.requestPermission({ mode: 'read' });
-            if (requestPermission === 'granted') {
-                console.log('重新获得权限，加载文件夹:', dirHandle.name);
-                fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">加载中...</div>';
-                await loadMedia(dirHandle);
-            } else {
-                console.log('用户拒绝了文件夹访问权限');
-            }
+
+        let permission = await dirHandle.queryPermission({ mode: 'read' });
+        if (permission !== 'granted') {
+            permission = await dirHandle.requestPermission({ mode: 'read' });
         }
+        if (permission !== 'granted') {
+            console.log('用户拒绝了文件夹访问权限');
+            return;
+        }
+
+        console.log('自动加载上次文件夹:', dirHandle.name);
+        fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">加载中...</div>';
+        const type = settings.lastImportType || 'image';
+        await loadFolderByType(dirHandle, type);
     } catch (err) {
         console.error('自动加载失败:', err);
     }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    setSidebar(sidebarOpen);
+
+    // 恢复记忆的音量
+    if (settings.audioVolume != null) audioVolumeEl.value = settings.audioVolume;
+    if (settings.videoVolume != null) videoVolumeEl.value = settings.videoVolume;
+
     console.log('DOMContentLoaded: 尝试自动加载');
     autoLoadLastFolder();
 });
@@ -1433,7 +1644,7 @@ function drawStaticWaveform() {
     
     // 绘制底部静态线
     visualizerCtx.beginPath();
-    visualizerCtx.strokeStyle = 'rgba(155, 89, 182, 0.3)';
+    visualizerCtx.strokeStyle = 'rgba(255, 178, 107, 0.3)';
     visualizerCtx.lineWidth = 2;
     visualizerCtx.moveTo(0, height / 2);
     visualizerCtx.lineTo(width, height / 2);
@@ -1461,9 +1672,9 @@ function drawFrequencyBars(width, height) {
         
         // 创建渐变色
         const gradient = visualizerCtx.createLinearGradient(0, height / 2 - barHeight, 0, height / 2 + barHeight);
-        gradient.addColorStop(0, 'rgba(155, 89, 182, 0.9)');
-        gradient.addColorStop(0.5, 'rgba(142, 68, 173, 0.7)');
-        gradient.addColorStop(1, 'rgba(155, 89, 182, 0.9)');
+        gradient.addColorStop(0, 'rgba(255, 178, 107, 0.9)');
+        gradient.addColorStop(0.5, 'rgba(255, 138, 92, 0.7)');
+        gradient.addColorStop(1, 'rgba(255, 178, 107, 0.9)');
         
         // 绘制顶部柱（向上）
         visualizerCtx.fillStyle = gradient;
@@ -1485,7 +1696,7 @@ function drawWaveform(width, height) {
     
     // 绘制波浪线
     visualizerCtx.beginPath();
-    visualizerCtx.strokeStyle = 'rgba(155, 89, 182, 0.6)';
+    visualizerCtx.strokeStyle = 'rgba(255, 178, 107, 0.6)';
     visualizerCtx.lineWidth = 2;
     visualizerCtx.lineCap = 'round';
     visualizerCtx.lineJoin = 'round';

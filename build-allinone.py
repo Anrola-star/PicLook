@@ -6,7 +6,6 @@ AllinOne 整合脚本
 """
 
 import os
-import re
 
 def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -53,13 +52,10 @@ def main():
             '<script>\n' + js_content + '\n</script>'
         )
         
-        # 6. 移除外部库引用（使用正则但不包含复杂内容）
+        # 6. 移除外部库引用（逐个替换，兼容标签之间夹杂注释的情况）
         print('6. 处理外部库引用...')
-        html_content = re.sub(
-            r'<script src="libs/jszip\.min\.js"></script>\s*<script src="libs/jsmediatags\.min\.js"></script>',
-            '',
-            html_content
-        )
+        html_content = html_content.replace('<script src="libs/jszip.min.js"></script>', '')
+        html_content = html_content.replace('<script src="libs/jsmediatags.min.js"></script>', '')
         
         # 7. 嵌入本地库文件
         lib_scripts = ''

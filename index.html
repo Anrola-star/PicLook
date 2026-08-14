@@ -11,13 +11,33 @@
     <script src="libs/jsmediatags.min.js"></script>
 </head>
 <body>
+    <!-- 环境光背景 -->
+    <div class="ambient ambient-1"></div>
+    <div class="ambient ambient-2"></div>
+    <div class="ambient ambient-3"></div>
+    <div class="ambient ambient-4"></div>
+
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+    <button class="sidebar-toggle" id="sidebarToggle" aria-label="切换侧边栏" title="切换侧边栏">
+        <span></span>
+        <span></span>
+        <span></span>
+    </button>
+
     <div class="container">
         <div class="sidebar">
             <div class="sidebar-header">
+                <div class="app-brand">
+                    <div class="app-logo">🖼️</div>
+                    <div>
+                        <div class="app-title">PicLook</div>
+                        <div class="app-subtitle">漫画 · 音乐 · 视频</div>
+                    </div>
+                </div>
                 <div class="import-dropdown">
-                    <button class="folder-selector" id="importBtn">📂 导入</button>
+                    <button class="folder-selector" id="importBtn">📂 导入媒体 <span class="folder-selector-arrow">▾</span></button>
                     <div class="dropdown-menu" id="dropdownMenu">
-                        <div class="dropdown-item" data-type="image">📷 导入图片</div>
+                        <div class="dropdown-item" data-type="image">🖼️ 导入图片</div>
                         <div class="dropdown-item" data-type="music">🎵 导入音乐</div>
                         <div class="dropdown-divider"></div>
                         <div class="dropdown-item" data-type="video">🎬 导入视频</div>
@@ -29,18 +49,22 @@
             </div>
         </div>
         <div class="viewer" id="viewer">
-            <div class="no-content" id="noContent">选择一个文件以开始</div>
+            <div class="no-content" id="noContent">
+                <div class="no-content-icon">👋</div>
+                <div>选择一个文件以开始</div>
+                <div class="no-content-sub">导入本地文件夹，所有文件仅在浏览器本地处理</div>
+            </div>
             <div class="nav-hint" id="navHint" style="display: block;">← 上一页 | 下一页 →</div>
-            
+
             <button class="nav-btn nav-btn-left" id="navLeftBtn" style="display: none;">‹</button>
             <button class="nav-btn nav-btn-right" id="navRightBtn" style="display: none;">›</button>
-            
-            <button class="reset-btn" id="resetBtn" style="display: none;">⟲</button>
-            
+
+            <button class="reset-btn" id="resetBtn" style="display: none;" title="重置缩放">⟲</button>
+
             <div class="image-container" id="imageContainer">
                 <img class="viewer-image" id="viewerImage" style="display: none;" />
             </div>
-            
+
             <div class="video-player" id="videoPlayer" style="display: none;">
                 <video id="videoElement" class="video-element"></video>
                 <div class="video-controls" id="videoControls">
@@ -52,15 +76,16 @@
                     <div class="video-buttons">
                         <button class="video-btn" id="videoPlayPause">▶</button>
                         <span class="video-time" id="videoTime">0:00 / 0:00</span>
-                        <button class="video-btn" id="videoPrev">⏮</button>
-                        <button class="video-btn" id="videoNext">⏭</button>
+                        <span class="video-spacer"></span>
+                        <button class="video-btn" id="videoPrev" title="上一个">⏮</button>
+                        <button class="video-btn" id="videoNext" title="下一个">⏭</button>
                         <input type="range" class="video-volume" id="videoVolume" min="0" max="100" value="80" />
                         <button class="video-btn video-toggle" id="videoLoopBtn" title="循环播放">🔁</button>
                         <button class="video-btn video-toggle" id="videoAutoNextBtn" title="自动连播">▶▶</button>
                     </div>
                 </div>
             </div>
-            
+
             <div class="viewer-info" id="viewerInfo" style="display: block;"></div>
             <div class="audio-player" id="audioPlayer" style="display: none;">
                 <div class="audio-cover" id="audioCover">
@@ -73,9 +98,9 @@
                     <div class="audio-album" id="audioAlbum"></div>
                 </div>
                 <div class="audio-controls">
-                    <button class="audio-btn" id="audioPrev">⏮</button>
+                    <button class="audio-btn" id="audioPrev" title="上一曲">⏮</button>
                     <button class="audio-btn audio-play-btn" id="audioPlayPause">▶</button>
-                    <button class="audio-btn" id="audioNext">⏭</button>
+                    <button class="audio-btn" id="audioNext" title="下一曲">⏭</button>
                 </div>
                 <div class="audio-progress">
                     <div class="progress-bar" id="progressBar">
