@@ -1,13 +1,120 @@
 // ==================== 全局变量定义 ====================
 
+// 自定义配置
+let autoLoadEnabled = true;
+
+// ==================== 设置持久化（localStorage，不依赖额外文件） ====================
+
+const SETTINGS_KEY = 'PicLookSettings';
+
+function loadSettings() {
+    try {
+        return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
+    } catch (e) {
+        return {};
+    }
+}
+
+let settings = loadSettings();
+
+function saveSettings() {
+    try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch (e) {
+        console.error('保存设置失败:', e);
+    }
+}
+
+let lastProgressSave = 0;
+let isRestoringProgress = false;
+
+// ==================== 进度记忆 ====================
+
+function saveComicProgress() {
+    if (!currentComic) return;
+    settings.mode = 'comic';
+    settings.comic = { comicIndex: currentComicIndex, pageIndex: currentImageIndex };
+    saveSettings();
+}
+
+function saveAudioProgress(timeOverride) {
+    const t = typeof timeOverride === 'number' ? timeOverride : (audio ? audio.currentTime : 0);
+    settings.mode = 'audio';
+    settings.audio = { albumIndex: currentAlbumIndex, trackIndex: currentTrackIndex, time: t };
+    saveSettings();
+}
+
+function saveVideoProgress(timeOverride) {
+    const t = typeof timeOverride === 'number' ? timeOverride : (videoElement ? videoElement.currentTime : 0);
+    settings.mode = 'video';
+    settings.video = { index: currentVideoIndex, time: t };
+    saveSettings();
+}
+
+function saveProgressThrottled() {
+    const now = Date.now();
+    if (now - lastProgressSave < 3000) return;
+    lastProgressSave = now;
+    if (currentMode === 'audio') saveAudioProgress();
+    else if (currentMode === 'video') saveVideoProgress();
+}
+
+async function restoreComicProgress() {
+    const p = settings.comic;
+    if (!p || comics.length === 0) return;
+    let ci = p.comicIndex;
+    if (ci < 0 || ci >= comics.length) ci = 0;
+    await openComic(ci);
+    const pg = Math.min(p.pageIndex || 0, currentImages.length - 1);
+    currentImageIndex = pg;
+    await showImage();
+}
+
+async function restoreAudioProgress() {
+    const p = settings.audio;
+    if (!p || albums.length === 0) return;
+    let ai = p.albumIndex;
+    let ti = p.trackIndex;
+    if (ai < 0 || ai >= albums.length) { ai = 0; ti = 0; }
+    const album = albums[ai];
+    if (!album) return;
+    if (ti < 0 || ti >= album.tracks.length) ti = 0;
+    isRestoringProgress = true;
+    try {
+        await openAlbum(ai, ti);
+        if (audio && p.time > 1) {
+            audio.addEventListener('loadedmetadata', () => {
+                if (audio.duration && p.time < audio.duration) {
+                    audio.currentTime = p.time;
+                }
+            }, { once: true });
+        }
+    } finally {
+        isRestoringProgress = false;
+    }
+}
+
+async function restoreVideoProgress() {
+    const p = settings.video;
+    if (!p || videos.length === 0) return;
+    let vi = p.index;
+    if (vi < 0 || vi >= videos.length) vi = 0;
+    await playVideo(vi);
+    if (p.time > 1 && videoElement) {
+        videoElement.addEventListener('loadedmetadata', () => {
+            if (videoElement.duration && p.time < videoElement.duration) {
+                videoElement.currentTime = p.time;
+            }
+        }, { once: true });
+    }
+}
+
 // 漫画相关数据
 let comics = [];                          // 所有漫画列表
 let currentComic = null;                  // 当前正在阅读的漫画
-let currentChapter = null;                // 当前正在阅读的章节
 let currentImageIndex = 0;                // 当前显示的图片索引
-let currentImages = [];                   // 当前章节的所有图片
+let currentImages = [];                   // 当前漫画的所有图片
 let currentComicIndex = 0;                // 当前漫画在列表中的索引
-let currentChapterIndex = 0;              // 当前章节在漫画中的索引
 
 // 音频相关数据
 let currentAlbum = null;                  // 当前正在播放的专辑
@@ -16,303 +123,582 @@ let currentTracks = [];                   // 当前专辑的所有曲目
 let currentAlbumIndex = 0;                // 当前专辑在列表中的索引
 let albums = [];                          // 所有专辑列表
 
+// 视频相关数据
+let videos = [];                          // 所有视频列表
+let currentVideoIndex = 0;                // 当前视频索引
+let videoLoop = false;                    // 是否循环播放当前视频
+let videoAutoNext = false;                // 是否自动播放下一个视频
+
 // 应用状态
-let currentMode = 'comic';                // 当前模式：'comic'（漫画）或 'audio'（音频）
+let currentMode = 'comic';                // 当前模式：'comic'（漫画）或 'audio'（音频）或 'video'（视频）
 let audio = null;                         // Audio 对象实例
+let videoElement = null;                  // Video 对象实例
 let isPlaying = false;                    // 音频播放状态
+let hideControlsTimeout = null;           // 自动隐藏控制元素的定时器
+const CONTROLS_HIDE_DELAY = 2000;         // 控制元素自动隐藏延迟（毫秒）
+
+// 图片缩放和拖动相关变量
+let imageScale = 1;                       // 当前缩放比例
+let imageOffsetX = 0;                     // 图片水平偏移
+let imageOffsetY = 0;                     // 图片垂直偏移
+let isDragging = false;                   // 是否正在拖动
+let dragStartX = 0;                       // 拖动起始 X 坐标
+let dragStartY = 0;                       // 拖动起始 Y 坐标
+let dragStartOffsetX = 0;                 // 拖动起始时的水平偏移
+let dragStartOffsetY = 0;                 // 拖动起始时的垂直偏移
+
+// 音频可视化相关变量
+let audioContext = null;                  // 音频上下文
+let analyser = null;                      // 分析器节点
+let audioSource = null;                   // 音频源节点
+let visualizerCanvas = null;              // 可视化 Canvas 元素
+let visualizerCtx = null;                 // Canvas 2D 上下文
+let animationId = null;                    // 动画帧 ID
+let dataArray = null;                      // 音频数据数组
 
 // ==================== DOM 元素获取 ====================
 
 // 界面元素
-const selectFolderBtn = document.getElementById('selectFolder');      // 选择文件夹按钮
-const fileTreeEl = document.getElementById('fileTree');              // 文件树容器
-const viewerEl = document.getElementById('viewer');                  // 查看器容器
-const noContentEl = document.getElementById('noContent');            // 无内容提示
-const viewerImageEl = document.getElementById('viewerImage');        // 图片显示元素
-const viewerInfoEl = document.getElementById('viewerInfo');          // 图片信息显示
-const navHintEl = document.getElementById('navHint');                // 导航提示
+const importBtn = document.getElementById('importBtn');
+const dropdownMenu = document.getElementById('dropdownMenu');
+const fileTreeEl = document.getElementById('fileTree');
+const viewerEl = document.getElementById('viewer');
+const noContentEl = document.getElementById('noContent');
+const viewerImageEl = document.getElementById('viewerImage');
+const viewerInfoEl = document.getElementById('viewerInfo');
+const navHintEl = document.getElementById('navHint');
+const navLeftBtn = document.getElementById('navLeftBtn');
+const navRightBtn = document.getElementById('navRightBtn');
+const resetBtn = document.getElementById('resetBtn');
+const imageContainerEl = document.getElementById('imageContainer');
 
-// 音频播放器元素
-const audioPlayerEl = document.getElementById('audioPlayer');        // 音频播放器容器
-const audioTitleEl = document.getElementById('audioTitle');          // 曲目标题
-const audioAlbumEl = document.getElementById('audioAlbum');          // 专辑名称
-const audioPlayPauseBtn = document.getElementById('audioPlayPause');  // 播放/暂停按钮
-const audioPrevBtn = document.getElementById('audioPrev');            // 上一首按钮
-const audioNextBtn = document.getElementById('audioNext');            // 下一首按钮
-const progressBarEl = document.getElementById('progressBar');        // 进度条容器
-const progressFillEl = document.getElementById('progressFill');      // 进度条填充
-const progressHandleEl = document.getElementById('progressHandle');  // 进度条滑块
-const currentTimeEl = document.getElementById('currentTime');        // 当前时间显示
-const totalTimeEl = document.getElementById('totalTime');            // 总时间显示
-const audioVolumeEl = document.getElementById('audioVolume');        // 音量滑块
-const coverImageEl = document.getElementById('coverImage');          // 专辑封面图片
-const audioIconEl = document.getElementById('audioIcon');            // 默认音频图标
+// 侧边栏控制元素
+const sidebarToggleBtn = document.getElementById('sidebarToggle');
+const sidebarBackdropEl = document.getElementById('sidebarBackdrop');
 
-// ==================== 事件监听器 ====================
+// 下拉菜单状态
+let isDropdownOpen = false;
 
-// 选择文件夹按钮点击事件
-selectFolderBtn.addEventListener('click', async () => {
-    try {
-        // 调用浏览器 API 打开文件夹选择器
-        const dirHandle = await window.showDirectoryPicker();
-        // 显示加载提示
-        fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">加载中...</div>';
-        // 加载媒体文件
-        await loadMedia(dirHandle);
-    } catch (err) {
-        // 错误处理：显示友好的错误信息
-        console.error('Error selecting folder:', err);
-        fileTreeEl.innerHTML = `<div class="no-content" style="padding: 20px;">
-            错误：${err.message}<br><br>
-            请确保使用 Chrome 或 Edge 浏览器，并且授予了文件夹访问权限。
-        </div>`;
+// ==================== 侧边栏控制 ====================
+
+const isMobileView = () => !window.matchMedia('(min-width: 641px)').matches;
+let sidebarOpen = !isMobileView();
+
+function setSidebar(open) {
+    sidebarOpen = open;
+    document.body.classList.toggle('sidebar-open', open);
+    document.body.classList.toggle('sidebar-hidden', !open);
+    sidebarToggleBtn.classList.toggle('active', open);
+}
+
+function toggleSidebar() {
+    setSidebar(!sidebarOpen);
+}
+
+function closeSidebar() {
+    setSidebar(false);
+}
+
+sidebarToggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleSidebar();
+});
+
+sidebarBackdropEl.addEventListener('click', () => {
+    closeSidebar();
+});
+
+// 移动端选中项目后自动收起抽屉
+fileTreeEl.addEventListener('click', (e) => {
+    const target = e.target.closest('.comic-item, .track, .video-item');
+    if (target && isMobileView()) {
+        closeSidebar();
     }
 });
 
-// ==================== 核心功能函数 ====================
+// 音频播放器元素
+const audioPlayerEl = document.getElementById('audioPlayer');
+const audioTitleEl = document.getElementById('audioTitle');
+const audioAlbumEl = document.getElementById('audioAlbum');
+const audioPlayPauseBtn = document.getElementById('audioPlayPause');
+const audioPrevBtn = document.getElementById('audioPrev');
+const audioNextBtn = document.getElementById('audioNext');
+const progressBarEl = document.getElementById('progressBar');
+const progressFillEl = document.getElementById('progressFill');
+const progressHandleEl = document.getElementById('progressHandle');
+const currentTimeEl = document.getElementById('currentTime');
+const totalTimeEl = document.getElementById('totalTime');
+const audioVolumeEl = document.getElementById('audioVolume');
+const coverImageEl = document.getElementById('coverImage');
+const audioIconEl = document.getElementById('audioIcon');
+const visualizerCanvasEl = document.getElementById('audioVisualizer');
 
-/**
- * 加载媒体文件（漫画和音频）
- * @param {FileSystemDirectoryHandle} dirHandle - 根目录句柄
- */
-async function loadMedia(dirHandle) {
-    // 清空现有数据
+// 视频播放器元素
+const videoPlayerEl = document.getElementById('videoPlayer');
+const videoElementEl = document.getElementById('videoElement');
+const videoControlsEl = document.getElementById('videoControls');
+const videoPlayPauseBtn = document.getElementById('videoPlayPause');
+const videoPrevBtn = document.getElementById('videoPrev');
+const videoNextBtn = document.getElementById('videoNext');
+const videoProgressBarEl = document.getElementById('videoProgressBar');
+const videoProgressFillEl = document.getElementById('videoProgressFill');
+const videoTimeEl = document.getElementById('videoTime');
+const videoVolumeEl = document.getElementById('videoVolume');
+const videoLoopBtnEl = document.getElementById('videoLoopBtn');
+const videoAutoNextBtnEl = document.getElementById('videoAutoNextBtn');
+
+// ==================== 事件监听器 ====================
+
+// 导入菜单事件
+importBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    isDropdownOpen = !isDropdownOpen;
+    dropdownMenu.classList.toggle('show', isDropdownOpen);
+});
+
+dropdownMenu.addEventListener('click', async (e) => {
+    const item = e.target.closest('.dropdown-item');
+    if (!item || item.classList.contains('disabled')) return;
+    
+    const type = item.dataset.type;
+    isDropdownOpen = false;
+    dropdownMenu.classList.remove('show');
+    
+    switch (type) {
+        case 'image':
+            await importImages();
+            break;
+        case 'music':
+            await importMusic();
+            break;
+        case 'video':
+            await importVideo();
+            break;
+    }
+});
+
+document.addEventListener('click', () => {
+    if (isDropdownOpen) {
+        isDropdownOpen = false;
+        dropdownMenu.classList.remove('show');
+    }
+});
+
+// 翻页按钮事件
+navLeftBtn.addEventListener('click', async () => {
+    await prevPage();
+});
+
+navRightBtn.addEventListener('click', async () => {
+    await nextPage();
+});
+
+resetBtn.addEventListener('click', () => {
+    imageScale = 1;
+    imageOffsetX = 0;
+    imageOffsetY = 0;
+    updateImageTransform();
+    showControls();
+});
+
+// 鼠标拖动事件
+imageContainerEl.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || !viewerImageEl.src) return;
+    e.preventDefault();
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    dragStartOffsetX = imageOffsetX;
+    dragStartOffsetY = imageOffsetY;
+    viewerImageEl.classList.add('dragging');
+    imageContainerEl.classList.add('dragging');
+    showControls();
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    
+    const deltaX = e.clientX - dragStartX;
+    const deltaY = e.clientY - dragStartY;
+    
+    imageOffsetX = dragStartOffsetX + deltaX;
+    imageOffsetY = dragStartOffsetY + deltaY;
+    
+    updateImageTransform();
+});
+
+document.addEventListener('mouseup', () => {
+    if (isDragging) {
+        isDragging = false;
+        viewerImageEl.classList.remove('dragging');
+        imageContainerEl.classList.remove('dragging');
+    }
+});
+
+// 滚轮缩放事件
+imageContainerEl.addEventListener('wheel', (e) => {
+    if (!viewerImageEl.src) return;
+    
+    e.preventDefault();
+    
+    const rect = imageContainerEl.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    const newScale = Math.max(0.5, Math.min(3, imageScale + delta));
+    
+    if (newScale !== imageScale) {
+        const scaleDiff = newScale / imageScale;
+        imageOffsetX = mouseX - (mouseX - imageOffsetX) * scaleDiff;
+        imageOffsetY = mouseY - (mouseY - imageOffsetY) * scaleDiff;
+        imageScale = newScale;
+        
+        updateImageTransform();
+        showControls();
+    }
+}, { passive: false });
+
+// ==================== 导入功能函数 ====================
+
+async function importImages() {
+    try {
+        const dirHandle = await window.showDirectoryPicker();
+        console.log('导入图片:', dirHandle);
+        fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">加载中...</div>';
+        settings.lastImportType = 'image';
+        saveSettings();
+        await saveFolderHandle(dirHandle);
+        await loadComics(dirHandle);
+    } catch (err) {
+        console.error('导入图片失败:', err);
+        if (err.name !== 'AbortError') {
+            fileTreeEl.innerHTML = `<div class="no-content" style="padding: 20px;">
+                错误：${err.message}<br><br>
+                请确保使用 Chrome 或 Edge 浏览器，并且授予了文件夹访问权限。
+            </div>`;
+        }
+    }
+}
+
+async function importMusic() {
+    try {
+        const dirHandle = await window.showDirectoryPicker();
+        console.log('导入音乐:', dirHandle);
+        fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">加载中...</div>';
+        settings.lastImportType = 'music';
+        saveSettings();
+        await saveFolderHandle(dirHandle);
+        await loadMusic(dirHandle);
+    } catch (err) {
+        console.error('导入音乐失败:', err);
+        if (err.name !== 'AbortError') {
+            fileTreeEl.innerHTML = `<div class="no-content" style="padding: 20px;">
+                错误：${err.message}<br><br>
+                请确保使用 Chrome 或 Edge 浏览器，并且授予了文件夹访问权限。
+            </div>`;
+        }
+    }
+}
+
+async function loadMusic(dirHandle) {
     comics = [];
     albums = [];
 
-    // 第一步：递归扫描所有音频目录
-    // 先扫描音频，因为音频目录中的图片应该作为封面，而不是漫画
     const audioDirs = await findAudioDirsRecursive(dirHandle, '');
-    // 收集所有音频目录的路径，用于后续排除
-    const audioDirPaths = new Set(audioDirs.map(a => a.path));
 
-    // 第二步：递归扫描图片目录，排除音频目录
-    const imageLeafDirs = await findImageDirsRecursive(dirHandle, audioDirPaths, '');
-
-    // 第三步：将图片目录按漫画分组
-    const comicMap = new Map();
-    for (const leaf of imageLeafDirs) {
-        const chapter = {
-            name: leaf.chapterName,      // 章节名称
-            handle: leaf.handle,          // 章节目录句柄
-            images: leaf.images           // 章节中的图片列表
-        };
-
-        // 使用漫画名作为唯一键，确保同一漫画的章节被正确分组
-        const comicKey = leaf.comicName + '|' + (leaf.comicHandle ? leaf.comicHandle.name : '');
-        if (!comicMap.has(comicKey)) {
-            comicMap.set(comicKey, {
-                name: leaf.comicName,     // 漫画名称
-                handle: leaf.comicHandle, // 漫画目录句柄
-                chapters: []              // 章节列表
-            });
-        }
-        // 将章节添加到对应的漫画中
-        comicMap.get(comicKey).chapters.push(chapter);
-    }
-
-    // 第四步：对漫画和章节进行排序
-    for (const comic of comicMap.values()) {
-        // 章节按名称排序（支持数字排序，如"第2话"排在"第10话"前）
-        comic.chapters.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-        comics.push(comic);
-    }
-    // 漫画按名称排序
-    comics.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-
-    // 第五步：处理专辑数据
     for (const album of audioDirs) {
         albums.push({
-            name: album.albumName,        // 专辑名称
-            handle: album.handle,          // 专辑目录句柄
-            tracks: album.tracks,          // 曲目列表
-            cover: album.cover             // 专辑封面
+            name: album.name,
+            handle: album.handle,
+            tracks: album.tracks,
+            cover: album.cover
         });
     }
-    // 专辑按名称排序
+    
     albums.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-
-    // 第六步：渲染文件树
     renderFileTree();
 }
 
-/**
- * 递归查找包含图片的目录
- * @param {FileSystemDirectoryHandle} rootHandle - 根目录句柄
- * @param {Set<string>} audioDirPaths - 音频目录路径集合（需要排除）
- * @param {string} parentPath - 父目录路径
- * @returns {Promise<Array>} 包含图片的目录信息数组
- */
+async function importVideo() {
+    try {
+        const dirHandle = await window.showDirectoryPicker();
+        console.log('导入视频:', dirHandle);
+        settings.lastImportType = 'video';
+        saveSettings();
+        await saveFolderHandle(dirHandle);
+        await loadVideoFromHandle(dirHandle);
+    } catch (err) {
+        console.error('导入视频失败:', err);
+        if (err.name !== 'AbortError') {
+            fileTreeEl.innerHTML = `<div class="no-content" style="padding: 20px;">
+                错误：${err.message}
+            </div>`;
+        }
+    }
+}
+
+async function loadVideoFromHandle(dirHandle) {
+    fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">扫描中...</div>';
+
+    videos = [];
+    await scanVideoFiles(dirHandle, '');
+
+    if (videos.length === 0) {
+        fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">未找到视频文件</div>';
+        return;
+    }
+
+    renderVideoList();
+
+    if (videos.length > 0) {
+        await playVideo(0);
+    }
+}
+
+async function scanVideoFiles(dirHandle, parentPath) {
+    const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.wmv'];
+    
+    for await (const entry of dirHandle.values()) {
+        if (entry.kind === 'file') {
+            const ext = entry.name.toLowerCase().substring(entry.name.lastIndexOf('.'));
+            if (videoExtensions.includes(ext)) {
+                videos.push({
+                    name: entry.name,
+                    handle: entry
+                });
+            }
+        } else if (entry.kind === 'directory') {
+            await scanVideoFiles(entry, parentPath + '/' + entry.name);
+        }
+    }
+}
+
+function renderVideoList() {
+    let html = '<div class="section-header">🎬 视频列表</div>';
+    html += videos.map((video, index) => `
+        <div class="video-item ${index === currentVideoIndex ? 'active' : ''}" data-index="${index}">
+            🎬 ${video.name}
+        </div>
+    `).join('');
+    
+    fileTreeEl.innerHTML = html;
+    
+    document.querySelectorAll('.video-item').forEach(item => {
+        item.addEventListener('click', async () => {
+            const index = parseInt(item.dataset.index);
+            await playVideo(index);
+        });
+    });
+}
+
+async function playVideo(index) {
+    if (index < 0 || index >= videos.length) return;
+    
+    currentVideoIndex = index;
+    const video = videos[index];
+
+    currentMode = 'video';
+    saveVideoProgress(0);
+
+    const file = await video.handle.getFile();
+    const url = URL.createObjectURL(file);
+
+    if (!videoElement) {
+        videoElement = document.getElementById('videoElement');
+    }
+    videoElement.src = url;
+    videoElement.volume = videoVolumeEl.value / 100;
+    
+    document.getElementById('videoProgressFill').style.width = '0%';
+    document.getElementById('videoTime').textContent = '0:00 / 0:00';
+    
+    videoElement.style.display = 'block';
+    document.getElementById('videoPlayer').style.display = 'flex';
+    noContentEl.style.display = 'none';
+    
+    document.getElementById('imageContainer').style.display = 'none';
+    audioPlayerEl.style.display = 'none';
+    
+    document.querySelectorAll('.video-item').forEach((item, i) => {
+        item.classList.toggle('active', i === index);
+    });
+    
+    viewerInfoEl.textContent = `${video.name} (${index + 1}/${videos.length})`;
+    
+    videoElement.play().then(() => {
+        document.getElementById('videoPlayPause').textContent = '⏸';
+    }).catch(err => {
+        console.log('自动播放失败:', err);
+    });
+    
+    showControls();
+}
+
+// ==================== 核心功能函数 ====================
+
+async function loadComics(dirHandle) {
+    comics = [];
+    comics = await findImageDirsRecursive(dirHandle, new Set(), '');
+    comics.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    renderFileTree();
+}
+
+async function loadMedia(dirHandle) {
+    comics = [];
+    albums = [];
+
+    const audioDirs = await findAudioDirsRecursive(dirHandle, '');
+    const audioDirPaths = new Set(audioDirs.map(a => a.path));
+
+    comics = await findImageDirsRecursive(dirHandle, audioDirPaths, '');
+
+    comics.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    for (const album of audioDirs) {
+        albums.push({
+            name: album.name,
+            handle: album.handle,
+            tracks: album.tracks,
+            cover: album.cover
+        });
+    }
+    albums.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+    renderFileTree();
+}
+
 async function findImageDirsRecursive(rootHandle, audioDirPaths = new Set(), parentPath = '') {
-    // 支持的图片格式
     const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+    const zipExtensions = ['.zip', '.cbz'];
     const results = [];
 
-    /**
-     * 递归扫描目录
-     * @param {FileSystemDirectoryHandle} dirHandle - 当前目录句柄
-     * @param {FileSystemDirectoryHandle|null} parentHandle - 父目录句柄
-     * @param {string} currentPath - 当前目录路径
-     */
-    async function scan(dirHandle, parentHandle, currentPath) {
-        // 构建当前目录的完整路径
+    async function scan(dirHandle, currentPath) {
         const dirPath = currentPath ? currentPath + '/' + dirHandle.name : dirHandle.name;
         
-        // 如果当前目录是音频目录，跳过扫描
-        // 这样可以避免将专辑封面识别为漫画
         if (audioDirPaths.has(dirPath)) {
             return;
         }
 
-        let imagesInThisDir = [];  // 当前目录中的图片
-        const subdirs = [];        // 子目录列表
+        let imagesInThisDir = [];
+        const subdirs = [];
+        const zipFiles = [];
 
-        // 遍历目录中的所有条目
         for await (const entry of dirHandle.values()) {
             if (entry.kind === 'file') {
-                // 处理文件：检查是否为图片
                 const ext = entry.name.toLowerCase().substring(entry.name.lastIndexOf('.'));
                 if (imageExtensions.includes(ext)) {
                     imagesInThisDir.push({
-                        name: entry.name,   // 文件名
-                        handle: entry       // 文件句柄
+                        name: entry.name,
+                        handle: entry
+                    });
+                } else if (zipExtensions.includes(ext)) {
+                    zipFiles.push({
+                        name: entry.name,
+                        handle: entry
                     });
                 }
             } else if (entry.kind === 'directory') {
-                // 处理目录：添加到子目录列表
                 subdirs.push(entry);
             }
         }
 
-        // 如果当前目录包含图片，将其识别为一个章节
         if (imagesInThisDir.length > 0) {
-            // 按文件名排序（支持数字排序）
             imagesInThisDir.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
-            // 确定漫画和章节的名称
-            const comicHandle = parentHandle || dirHandle;
-            const comicName = parentHandle ? parentHandle.name : dirHandle.name;
-            const chapterName = parentHandle ? dirHandle.name : '图片';
-
-            // 将结果添加到数组
             results.push({
-                comicName,       // 漫画名称
-                comicHandle,     // 漫画目录句柄
-                chapterName,     // 章节名称
-                handle: dirHandle, // 章节目录句柄
-                images: imagesInThisDir // 图片列表
+                name: dirHandle.name,
+                handle: dirHandle,
+                images: imagesInThisDir
             });
         }
 
-        // 递归扫描子目录
+        for (const zipFile of zipFiles) {
+            const comicName = zipFile.name.replace(/\.(zip|cbz)$/i, '');
+            results.push({
+                name: comicName,
+                handle: zipFile.handle,
+                images: [],
+                isZip: true
+            });
+        }
+
         for (const subdir of subdirs) {
-            await scan(subdir, dirHandle, dirPath);
+            await scan(subdir, dirPath);
         }
     }
 
-    // 开始扫描
-    await scan(rootHandle, null, parentPath);
+    await scan(rootHandle, parentPath);
     return results;
 }
 
-/**
- * 递归查找包含音频的目录（专辑）
- * @param {FileSystemDirectoryHandle} rootHandle - 根目录句柄
- * @param {string} parentPath - 父目录路径
- * @returns {Promise<Array>} 包含音频的目录信息数组
- */
 async function findAudioDirsRecursive(rootHandle, parentPath = '') {
-    // 支持的音频格式
     const audioExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.wma'];
-    // 支持的图片格式（用于专辑封面）
     const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
     const results = [];
 
-    /**
-     * 递归扫描目录
-     * @param {FileSystemDirectoryHandle} dirHandle - 当前目录句柄
-     * @param {string} currentPath - 当前目录路径
-     */
     async function scan(dirHandle, currentPath) {
-        // 构建当前目录的完整路径
         const dirPath = currentPath ? currentPath + '/' + dirHandle.name : dirHandle.name;
         
-        let tracksInThisDir = [];  // 当前目录中的音频文件
-        let cover = null;          // 专辑封面
-        const subdirs = [];        // 子目录列表
+        let tracksInThisDir = [];
+        let cover = null;
+        const subdirs = [];
 
-        // 遍历目录中的所有条目
         for await (const entry of dirHandle.values()) {
             if (entry.kind === 'file') {
                 const ext = entry.name.toLowerCase().substring(entry.name.lastIndexOf('.'));
                 if (audioExtensions.includes(ext)) {
-                    // 处理音频文件：添加到曲目列表
                     tracksInThisDir.push({
-                        name: entry.name.replace(/\.[^.]+$/, ''),  // 去除扩展名的文件名
-                        fullName: entry.name,                        // 完整文件名
-                        handle: entry                               // 文件句柄
+                        name: entry.name.replace(/\.[^.]+$/, ''),
+                        fullName: entry.name,
+                        handle: entry
                     });
                 } else if (imageExtensions.includes(ext) && !cover) {
-                    // 处理图片文件：第一张图片作为专辑封面
                     cover = {
                         name: entry.name,
                         handle: entry
                     };
                 }
             } else if (entry.kind === 'directory') {
-                // 处理目录：添加到子目录列表
                 subdirs.push(entry);
             }
         }
 
-        // 如果当前目录包含音频，将其识别为一个专辑
         if (tracksInThisDir.length > 0) {
-            // 按曲目名排序（支持数字排序）
             tracksInThisDir.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
             results.push({
-                albumName: dirHandle.name,  // 专辑名称（目录名）
-                handle: dirHandle,          // 专辑目录句柄
-                tracks: tracksInThisDir,    // 曲目列表
-                cover: cover,               // 专辑封面
-                path: dirPath              // 专辑路径（用于排除）
+                name: dirHandle.name,
+                handle: dirHandle,
+                tracks: tracksInThisDir,
+                cover: cover,
+                path: dirPath
             });
         }
 
-        // 递归扫描子目录
         for (const subdir of subdirs) {
             await scan(subdir, dirPath);
         }
     }
 
-    // 开始扫描
     await scan(rootHandle, parentPath);
     return results;
 }
 
-/**
- * 渲染文件树（左侧导航栏）
- */
 function renderFileTree() {
     let html = '';
 
-    // 渲染漫画部分
     if (comics.length > 0) {
         html += '<div class="section-header">📖 漫画</div>';
-        html += comics.map((comic, comicIndex) => `
-            <div class="comic-folder" data-comic-index="${comicIndex}">
-                <div class="comic-title">${comic.name}</div>
-                <div class="chapters">
-                    ${comic.chapters.map((chapter, chapterIndex) => `
-                        <div class="chapter" data-comic-index="${comicIndex}" data-chapter-index="${chapterIndex}">
-                            ${chapter.name}
-                        </div>
-                    `).join('')}
+        html += comics.map((comic, comicIndex) => {
+            const icon = comic.isZip ? '📦' : '📁';
+            return `
+                <div class="comic-item ${comicIndex === currentComicIndex ? 'active' : ''}" data-comic-index="${comicIndex}">
+                    ${icon} ${comic.name}
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
 
-    // 渲染音乐专辑部分
     if (albums.length > 0) {
         html += '<div class="section-header">🎵 音乐专辑</div>';
         html += albums.map((album, albumIndex) => `
@@ -329,169 +715,214 @@ function renderFileTree() {
         `).join('');
     }
 
-    // 如果没有找到任何内容，显示提示
     if (comics.length === 0 && albums.length === 0) {
         html = '<div class="no-content" style="padding: 20px;">未找到漫画或音频文件夹</div>';
     }
 
-    // 将 HTML 插入到文件树容器
     fileTreeEl.innerHTML = html;
 
-    // 为漫画/专辑标题添加点击事件（展开/收起）
-    document.querySelectorAll('.comic-title').forEach(title => {
+    document.querySelectorAll('.comic-item').forEach(item => {
+        item.addEventListener('click', async (e) => {
+            const comicIndex = parseInt(e.target.dataset.comicIndex);
+            await openComic(comicIndex);
+        });
+    });
+
+    document.querySelectorAll('.album-title').forEach(title => {
         title.addEventListener('click', (e) => {
-            const folder = e.target.closest('.comic-folder');
+            const folder = e.target.closest('.album-folder');
             folder.classList.toggle('open');
         });
     });
 
-    // 为章节/曲目添加点击事件
-    document.querySelectorAll('.chapter').forEach(chapter => {
-        chapter.addEventListener('click', (e) => {
-            const comicIndex = e.target.dataset.comicIndex;
-            const albumIndex = e.target.dataset.albumIndex;
-            
-            // 根据数据属性判断是漫画还是音频
-            if (comicIndex !== undefined) {
-                const chapterIndex = parseInt(e.target.dataset.chapterIndex);
-                openChapter(parseInt(comicIndex), chapterIndex);
-            } else if (albumIndex !== undefined) {
-                const trackIndex = parseInt(e.target.dataset.trackIndex);
-                openAlbum(parseInt(albumIndex), trackIndex);
-            }
+    document.querySelectorAll('.track').forEach(track => {
+        track.addEventListener('click', async (e) => {
+            const albumIndex = parseInt(e.target.dataset.albumIndex);
+            const trackIndex = parseInt(e.target.dataset.trackIndex);
+            await openAlbum(albumIndex, trackIndex);
         });
     });
 }
 
 // ==================== 漫画阅读功能 ====================
 
-/**
- * 打开指定章节
- * @param {number} comicIndex - 漫画索引
- * @param {number} chapterIndex - 章节索引
- */
-async function openChapter(comicIndex, chapterIndex) {
-    // 停止音频播放
+function showControls() {
+    if (hideControlsTimeout) {
+        clearTimeout(hideControlsTimeout);
+    }
+    
+    navHintEl.classList.remove('hidden');
+    viewerInfoEl.classList.remove('hidden');
+    navLeftBtn.classList.remove('hidden');
+    navRightBtn.classList.remove('hidden');
+    resetBtn.classList.remove('hidden');
+    navLeftBtn.style.display = 'flex';
+    navRightBtn.style.display = 'flex';
+    resetBtn.style.display = 'flex';
+    navHintEl.style.display = 'block';
+    viewerInfoEl.style.display = 'block';
+
+    hideControlsTimeout = setTimeout(() => {
+        hideControls();
+    }, CONTROLS_HIDE_DELAY);
+}
+
+function hideControls() {
+    navHintEl.classList.add('hidden');
+    viewerInfoEl.classList.add('hidden');
+    navLeftBtn.classList.add('hidden');
+    navRightBtn.classList.add('hidden');
+    resetBtn.classList.add('hidden');
+}
+
+function updateImageTransform() {
+    viewerImageEl.style.transform = `translate(${imageOffsetX}px, ${imageOffsetY}px) scale(${imageScale})`;
+}
+
+async function openComic(comicIndex) {
     stopAudio();
     
-    // 切换到漫画模式
     currentMode = 'comic';
     currentComicIndex = comicIndex;
-    currentChapterIndex = chapterIndex;
     currentComic = comics[comicIndex];
-    currentChapter = currentComic.chapters[chapterIndex];
     currentImageIndex = 0;
-    currentImages = currentChapter.images;
-
-    // 更新文件树中的选中状态
-    document.querySelectorAll('.chapter').forEach(el => el.classList.remove('active'));
-    const chapterEl = document.querySelector(`.chapter[data-comic-index="${comicIndex}"][data-chapter-index="${chapterIndex}"]`);
-    if (chapterEl) {
-        chapterEl.classList.add('active');
-        const comicFolder = chapterEl.closest('.comic-folder');
-        if (comicFolder) comicFolder.classList.add('open');
+    
+    if (currentComic.isZip && currentComic.images.length === 0) {
+        fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">解压中...</div>';
+        
+        try {
+            const file = await currentComic.handle.getFile();
+            const zip = await JSZip.loadAsync(file);
+            
+            const images = [];
+            const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+            
+            for (const [path, zipFile] of Object.entries(zip.files)) {
+                if (zipFile.dir) continue;
+                
+                const ext = path.toLowerCase().substring(path.lastIndexOf('.'));
+                if (imageExtensions.includes(ext)) {
+                    images.push({
+                        name: path,
+                        file: zipFile
+                    });
+                }
+            }
+            
+            images.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+            
+            currentComic.images = images;
+            currentImages = images;
+            
+            renderFileTree();
+            
+            const comicEl = document.querySelector(`.comic-item[data-comic-index="${comicIndex}"]`);
+            if (comicEl) {
+                comicEl.classList.add('active');
+            }
+            
+        } catch (err) {
+            console.error('解压 ZIP 失败:', err);
+            fileTreeEl.innerHTML = `<div class="no-content" style="padding: 20px;">
+                解压失败：${err.message}
+            </div>`;
+            return;
+        }
+    } else {
+        currentImages = currentComic.images;
     }
 
-    // 隐藏音频播放器
+    document.querySelectorAll('.comic-item').forEach(el => el.classList.remove('active'));
+    const comicEl = document.querySelector(`.comic-item[data-comic-index="${comicIndex}"]`);
+    if (comicEl) {
+        comicEl.classList.add('active');
+    }
+
     audioPlayerEl.style.display = 'none';
-    // 显示第一张图片
+    videoPlayerEl.style.display = 'none';
+    document.querySelector('.image-container').style.display = 'flex';
+    document.querySelectorAll('.nav-btn').forEach(btn => btn.style.display = 'flex');
+    resetBtn.style.display = 'flex';
     await showImage();
 }
 
-/**
- * 显示当前图片
- */
 async function showImage() {
     if (currentImages.length === 0) return;
 
-    // 获取当前图片
     const image = currentImages[currentImageIndex];
-    // 从文件句柄获取文件
-    const file = await image.handle.getFile();
-    // 创建 Blob URL
-    const url = URL.createObjectURL(file);
+    let url;
+    
+    if (image.file) {
+        const blob = await image.file.async('blob');
+        url = URL.createObjectURL(blob);
+    } else {
+        const file = await image.handle.getFile();
+        url = URL.createObjectURL(file);
+    }
 
-    // 设置图片源并显示
+    imageScale = 1;
+    imageOffsetX = 0;
+    imageOffsetY = 0;
+
     viewerImageEl.src = url;
     viewerImageEl.style.display = 'block';
+    viewerImageEl.draggable = false;
     noContentEl.style.display = 'none';
-    navHintEl.style.display = 'block';
-    viewerInfoEl.style.display = 'block';
-    // 显示图片信息：漫画名 - 章节名 - 当前页/总页数
-    viewerInfoEl.textContent = `${currentComic.name} - ${currentChapter.name} - ${currentImageIndex + 1}/${currentImages.length}`;
+    showControls();
+    viewerInfoEl.textContent = `${currentComic.name} - ${currentImageIndex + 1}/${currentImages.length}`;
+    saveComicProgress();
 }
 
-/**
- * 下一页
- * 支持跨章节和跨漫画翻页
- */
 async function nextPage() {
-    if (!currentComic || !currentChapter || currentImages.length === 0) return;
+    if (!currentComic || currentImages.length === 0) return;
     
-    // 如果当前章节还有下一页
     if (currentImageIndex < currentImages.length - 1) {
         currentImageIndex++;
         await showImage();
-    } else {
-        // 当前章节已读完，尝试打开下一章
-        if (currentChapterIndex < currentComic.chapters.length - 1) {
-            await openChapter(currentComicIndex, currentChapterIndex + 1);
-        } else if (currentComicIndex < comics.length - 1) {
-            // 当前漫画已读完，尝试打开下一部漫画
-            await openChapter(currentComicIndex + 1, 0);
-        }
+    } else if (currentComicIndex < comics.length - 1) {
+        await openComic(currentComicIndex + 1);
     }
 }
 
-/**
- * 上一页
- * 支持跨章节和跨漫画翻页
- */
 async function prevPage() {
-    if (!currentComic || !currentChapter || currentImages.length === 0) return;
+    if (!currentComic || currentImages.length === 0) return;
     
-    // 如果当前章节还有上一页
     if (currentImageIndex > 0) {
         currentImageIndex--;
         await showImage();
-    } else {
-        // 当前章节已读完，尝试打开上一章
-        if (currentChapterIndex > 0) {
-            await openChapter(currentComicIndex, currentChapterIndex - 1);
-            // 跳转到上一章的最后一页
-            currentImageIndex = currentComic.chapters[currentChapterIndex].images.length - 1;
-            await showImage();
-        } else if (currentComicIndex > 0) {
-            // 当前漫画已读完，尝试打开上一部漫画
-            const newComicIndex = currentComicIndex - 1;
-            const newChapterIndex = comics[newComicIndex].chapters.length - 1;
-            await openChapter(newComicIndex, newChapterIndex);
-            // 跳转到上一部漫画最后一章的最后一页
-            currentImageIndex = comics[newComicIndex].chapters[newChapterIndex].images.length - 1;
-            await showImage();
-        }
+    } else if (currentComicIndex > 0) {
+        const newComicIndex = currentComicIndex - 1;
+        await openComic(newComicIndex);
+        currentImageIndex = comics[newComicIndex].images.length - 1;
+        await showImage();
     }
+}
+
+async function nextComic() {
+    if (!currentComic || comics.length === 0) return;
+    
+    const newComicIndex = (currentComicIndex + 1) % comics.length;
+    await openComic(newComicIndex);
+}
+
+async function prevComic() {
+    if (!currentComic || comics.length === 0) return;
+    
+    const newComicIndex = (currentComicIndex - 1 + comics.length) % comics.length;
+    await openComic(newComicIndex);
 }
 
 // ==================== 音频播放功能 ====================
 
-/**
- * 打开指定专辑
- * @param {number} albumIndex - 专辑索引
- * @param {number} trackIndex - 曲目索引
- */
 async function openAlbum(albumIndex, trackIndex) {
-    // 停止当前音频播放
     stopAudio();
     
-    // 切换到音频模式
     currentMode = 'audio';
     currentAlbumIndex = albumIndex;
     currentTrackIndex = trackIndex;
     currentAlbum = albums[albumIndex];
     currentTracks = currentAlbum.tracks;
 
-    // 更新文件树中的选中状态
     document.querySelectorAll('.chapter').forEach(el => el.classList.remove('active'));
     const trackEl = document.querySelector(`.chapter[data-album-index="${albumIndex}"][data-track-index="${trackIndex}"]`);
     if (trackEl) {
@@ -500,15 +931,18 @@ async function openAlbum(albumIndex, trackIndex) {
         if (albumFolder) albumFolder.classList.add('open');
     }
 
-    // 隐藏漫画相关元素
     viewerImageEl.style.display = 'none';
     viewerInfoEl.style.display = 'none';
     navHintEl.style.display = 'none';
     noContentEl.style.display = 'none';
-    // 显示音频播放器
+    document.querySelector('.image-container').style.display = 'none';
+    document.querySelectorAll('.nav-btn').forEach(btn => btn.style.display = 'none');
+    resetBtn.style.display = 'none';
+    videoPlayerEl.style.display = 'none';
     audioPlayerEl.style.display = 'flex';
 
-    // 显示专辑封面（如果有）
+    initAudioVisualizer();
+
     if (currentAlbum.cover) {
         const file = await currentAlbum.cover.handle.getFile();
         const url = URL.createObjectURL(file);
@@ -516,112 +950,229 @@ async function openAlbum(albumIndex, trackIndex) {
         coverImageEl.style.display = 'block';
         audioIconEl.style.display = 'none';
     } else {
-        // 没有封面则显示默认图标
         coverImageEl.style.display = 'none';
         audioIconEl.style.display = 'block';
     }
 
-    // 加载并播放指定曲目
     await loadAndPlayTrack(currentTrackIndex);
 }
 
-/**
- * 加载并播放指定曲目
- * @param {number} trackIndex - 曲目索引
- */
+async function readAudioCover(file) {
+    const fileName = file.name.toLowerCase();
+    console.log('尝试读取封面:', fileName);
+    
+    if (fileName.endsWith('.flac')) {
+        await readFlacCover(file);
+        return;
+    }
+    
+    jsmediatags.read(file, {
+        onSuccess: function(tag) {
+            const tags = tag.tags;
+            console.log('jsmediatags 成功:', fileName, tags);
+            
+            let picture = null;
+            if (tags.picture) {
+                picture = tags.picture;
+            } else if (tags.APIC) {
+                picture = tags.APIC;
+            }
+            
+            if (picture) {
+                const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(picture.data)));
+                const mimeType = picture.format || picture.data ? 'image/jpeg' : 'image/jpeg';
+                const imageUrl = `data:${mimeType};base64,${base64}`;
+                
+                console.log('找到封面:', mimeType, picture.data ? picture.data.length + ' bytes' : 'no data');
+                
+                coverImageEl.src = imageUrl;
+                coverImageEl.style.display = 'block';
+                audioIconEl.style.display = 'none';
+            } else {
+                console.log('没有找到封面标签');
+            }
+        },
+        onError: function(error) {
+            console.log('读取封面失败:', fileName, error);
+        }
+    });
+}
+
+async function readFlacCover(file) {
+    try {
+        const arrayBuffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        console.log('FLAC 文件大小:', bytes.length, 'bytes');
+        
+        if (bytes[0] !== 0x66 || bytes[1] !== 0x4C || bytes[2] !== 0x61 || bytes[3] !== 0x43) {
+            console.log('不是有效的 FLAC 文件');
+            return;
+        }
+        
+        let offset = 4;
+        let blockCount = 0;
+        
+        while (offset < bytes.length) {
+            blockCount++;
+            const blockHeader = bytes[offset];
+            const isLast = (blockHeader & 0x80) !== 0;
+            const blockType = blockHeader & 0x7F;
+            const blockLength = (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3];
+            
+            console.log(`Block ${blockCount}: type=${blockType}, length=${blockLength}, isLast=${isLast}`);
+            
+            offset += 4;
+            
+            if (blockType === 6) {
+                console.log('找到 PICTURE block!');
+                const pictureData = bytes.slice(offset, offset + blockLength);
+                const picture = parseFlacPicture(pictureData);
+                
+                if (picture) {
+                    console.log('解析图片成功:', picture.mimeType, picture.data.length, 'bytes');
+                    const blob = new Blob([picture.data], { type: picture.mimeType });
+                    const imageUrl = URL.createObjectURL(blob);
+                    
+                    coverImageEl.src = imageUrl;
+                    coverImageEl.style.display = 'block';
+                    audioIconEl.style.display = 'none';
+                    return;
+                }
+            }
+            
+            offset += blockLength;
+            
+            if (isLast) break;
+        }
+        console.log('未找到 PICTURE block，共扫描了', blockCount, '个 blocks');
+    } catch (error) {
+        console.log('读取 FLAC 封面失败:', error);
+    }
+}
+
+function parseFlacPicture(data) {
+    try {
+        let offset = 0;
+        
+        offset += 4;
+        
+        const mimeLength = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
+        offset += 4;
+        
+        const mimeType = String.fromCharCode.apply(null, data.slice(offset, offset + mimeLength));
+        offset += mimeLength;
+        
+        const descLength = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
+        offset += 4 + descLength;
+        
+        offset += 4 * 4;
+        
+        const imageLength = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
+        offset += 4;
+        
+        const imageData = data.slice(offset, offset + imageLength);
+        
+        return {
+            mimeType: mimeType,
+            data: imageData
+        };
+    } catch (error) {
+        console.log('解析 PICTURE block 失败:', error);
+        return null;
+    }
+}
+
 async function loadAndPlayTrack(trackIndex) {
-    // 边界检查
     if (trackIndex < 0 || trackIndex >= currentTracks.length) return;
     
-    // 更新当前曲目索引
     currentTrackIndex = trackIndex;
     const track = currentTracks[trackIndex];
-    
-    // 更新播放器界面信息
+
     audioTitleEl.textContent = track.name;
     audioAlbumEl.textContent = currentAlbum.name;
-    
-    // 清理旧的音频对象
+
     if (audio) {
         audio.pause();
         audio = null;
     }
+    saveAudioProgress(0);
 
-    // 从文件句柄获取文件并创建 Blob URL
     const file = await track.handle.getFile();
     const url = URL.createObjectURL(file);
-    
-    // 创建新的 Audio 对象
+
     audio = new Audio(url);
     audio.volume = audioVolumeEl.value / 100;
-    
-    // 音频元数据加载完成时更新总时长
+
+    readAudioCover(file);
+
     audio.addEventListener('loadedmetadata', () => {
         totalTimeEl.textContent = formatTime(audio.duration);
     });
-    
-    // 音频播放时更新进度条
+
     audio.addEventListener('timeupdate', updateProgress);
-    
-    // 音频播放结束时自动播放下一首
+    audio.addEventListener('timeupdate', saveProgressThrottled);
+    audio.addEventListener('pause', () => {
+        saveAudioProgress();
+    });
+
     audio.addEventListener('ended', () => {
         nextTrack();
     });
     
-    // 音频播放错误处理
     audio.addEventListener('error', (e) => {
         console.error('Audio playback error:', e);
         alert(`无法播放 "${track.name}"\n\n原因：浏览器不支持此音频格式。\n\n请使用 MP3、M4A、OGG、WAV 或 FLAC 格式的音频文件。`);
         audio = null;
         isPlaying = false;
         audioPlayPauseBtn.textContent = '▶';
+        audioPlayerEl.classList.remove('playing');
     });
-    
-    // 尝试播放音频
+
     try {
         await audio.play();
         isPlaying = true;
         audioPlayPauseBtn.textContent = '⏸';
+        audioPlayerEl.classList.add('playing');
+        connectAudioToVisualizer();
     } catch (err) {
         console.error('Playback failed:', err);
-        alert(`播放失败: ${err.message}\n\n可能的原因：\n- 浏览器不支持此音频格式\n- 需要用户交互才能播放`);
+        if (!isRestoringProgress) {
+            alert(`播放失败: ${err.message}\n\n可能的原因：\n- 浏览器不支持此音频格式\n- 需要用户交互才能播放`);
+        }
         audio = null;
         isPlaying = false;
         audioPlayPauseBtn.textContent = '▶';
+        audioPlayerEl.classList.remove('playing');
     }
     
-    // 更新文件树中的选中状态
     document.querySelectorAll('.chapter').forEach(el => el.classList.remove('active'));
     const trackEl = document.querySelector(`.chapter[data-album-index="${currentAlbumIndex}"][data-track-index="${currentTrackIndex}"]`);
     if (trackEl) trackEl.classList.add('active');
 }
 
-/**
- * 播放音频
- */
 function playAudio() {
     if (audio && !isPlaying) {
         audio.play();
         isPlaying = true;
         audioPlayPauseBtn.textContent = '⏸';
+        audioPlayerEl.classList.add('playing');
+        startVisualizerAnimation();
     }
 }
 
-/**
- * 暂停音频
- */
 function pauseAudio() {
     if (audio && isPlaying) {
         audio.pause();
         isPlaying = false;
         audioPlayPauseBtn.textContent = '▶';
+        audioPlayerEl.classList.remove('playing');
+        stopVisualizerAnimation();
     }
 }
 
-/**
- * 停止音频播放
- */
 function stopAudio() {
+    stopVisualizerAnimation();
+    audioPlayerEl.classList.remove('playing');
     if (audio) {
         audio.pause();
         audio.currentTime = 0;
@@ -631,68 +1182,41 @@ function stopAudio() {
     audioPlayPauseBtn.textContent = '▶';
 }
 
-/**
- * 下一首
- * 支持跨专辑播放
- */
 function nextTrack() {
-    // 如果当前专辑还有下一首
     if (currentTrackIndex < currentTracks.length - 1) {
         loadAndPlayTrack(currentTrackIndex + 1);
     } else if (currentAlbumIndex < albums.length - 1) {
-        // 当前专辑已播放完，尝试播放下一部专辑
         openAlbum(currentAlbumIndex + 1, 0);
     }
 }
 
-/**
- * 上一首
- * 支持跨专辑播放
- */
 function prevTrack() {
-    // 如果当前专辑还有上一首
     if (currentTrackIndex > 0) {
         loadAndPlayTrack(currentTrackIndex - 1);
     } else if (currentAlbumIndex > 0) {
-        // 当前专辑已播放完，尝试播放上一部专辑的最后一首
         const prevAlbum = albums[currentAlbumIndex - 1];
         openAlbum(currentAlbumIndex - 1, prevAlbum.tracks.length - 1);
     }
 }
 
-/**
- * 更新进度条
- */
 function updateProgress() {
     if (!audio) return;
     
-    // 计算播放进度百分比
     const progress = (audio.currentTime / audio.duration) * 100;
     progressFillEl.style.width = `${progress}%`;
     progressHandleEl.style.left = `${progress}%`;
-    // 更新当前时间显示
     currentTimeEl.textContent = formatTime(audio.currentTime);
 }
 
-/**
- * 格式化时间（秒 -> 分:秒）
- * @param {number} seconds - 秒数
- * @returns {string} 格式化后的时间字符串
- */
 function formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-/**
- * 跳转到指定位置
- * @param {MouseEvent} e - 鼠标事件
- */
 function seekTo(e) {
     if (!audio) return;
     
-    // 计算点击位置在进度条中的百分比
     const rect = progressBarEl.getBoundingClientRect();
     const percent = (e.clientX - rect.left) / rect.width;
     audio.currentTime = percent * audio.duration;
@@ -700,7 +1224,6 @@ function seekTo(e) {
 
 // ==================== 播放器控制事件 ====================
 
-// 播放/暂停按钮点击事件
 audioPlayPauseBtn.addEventListener('click', () => {
     if (isPlaying) {
         pauseAudio();
@@ -709,40 +1232,135 @@ audioPlayPauseBtn.addEventListener('click', () => {
     }
 });
 
-// 上一首按钮点击事件
 audioPrevBtn.addEventListener('click', () => {
     if (currentMode === 'audio') {
         prevTrack();
     }
 });
 
-// 下一首按钮点击事件
 audioNextBtn.addEventListener('click', () => {
     if (currentMode === 'audio') {
         nextTrack();
     }
 });
 
-// 进度条点击事件（跳转）
 progressBarEl.addEventListener('click', seekTo);
 
-// 音量滑块输入事件
 audioVolumeEl.addEventListener('input', () => {
     if (audio) {
         audio.volume = audioVolumeEl.value / 100;
+    }
+    settings.audioVolume = parseInt(audioVolumeEl.value);
+    saveSettings();
+});
+
+// ==================== 视频播放器事件 ====================
+
+videoPlayPauseBtn.addEventListener('click', () => {
+    if (videoElement.paused) {
+        videoElement.play();
+        videoPlayPauseBtn.textContent = '⏸';
+    } else {
+        videoElement.pause();
+        videoPlayPauseBtn.textContent = '▶';
+    }
+});
+
+videoElementEl.addEventListener('click', () => {
+    if (videoElement.paused) {
+        videoElement.play();
+        videoPlayPauseBtn.textContent = '⏸';
+    } else {
+        videoElement.pause();
+        videoPlayPauseBtn.textContent = '▶';
+    }
+});
+
+videoElementEl.addEventListener('timeupdate', () => {
+    if (videoElement.duration) {
+        const percent = (videoElement.currentTime / videoElement.duration) * 100;
+        videoProgressFillEl.style.width = percent + '%';
+        videoTimeEl.textContent = `${formatTime(videoElement.currentTime)} / ${formatTime(videoElement.duration)}`;
+    }
+    saveProgressThrottled();
+});
+
+videoElementEl.addEventListener('pause', () => {
+    saveVideoProgress();
+});
+
+videoElementEl.addEventListener('ended', () => {
+    saveVideoProgress();
+    if (videoLoop) {
+        videoElement.currentTime = 0;
+        videoElement.play();
+    } else if (videoAutoNext && currentVideoIndex < videos.length - 1) {
+        playVideo(currentVideoIndex + 1);
+    } else {
+        videoPlayPauseBtn.textContent = '▶';
+    }
+});
+
+videoProgressBarEl.addEventListener('click', (e) => {
+    const rect = videoProgressBarEl.getBoundingClientRect();
+    const percent = (e.clientX - rect.left) / rect.width;
+    videoElement.currentTime = videoElement.duration * percent;
+});
+
+videoVolumeEl.addEventListener('input', () => {
+    videoElement.volume = videoVolumeEl.value / 100;
+    settings.videoVolume = parseInt(videoVolumeEl.value);
+    saveSettings();
+});
+
+videoPlayerEl.addEventListener('mousemove', () => {
+    if (currentMode === 'video') {
+        videoControlsEl.classList.remove('hidden');
+        clearTimeout(hideControlsTimeout);
+        hideControlsTimeout = setTimeout(() => {
+            videoControlsEl.classList.add('hidden');
+        }, CONTROLS_HIDE_DELAY);
+    }
+});
+
+videoPrevBtn.addEventListener('click', () => {
+    if (currentVideoIndex > 0) {
+        playVideo(currentVideoIndex - 1);
+    }
+});
+
+videoNextBtn.addEventListener('click', () => {
+    if (currentVideoIndex < videos.length - 1) {
+        playVideo(currentVideoIndex + 1);
+    }
+});
+
+videoLoopBtnEl.addEventListener('click', () => {
+    videoLoop = !videoLoop;
+    videoLoopBtnEl.classList.toggle('active', videoLoop);
+    if (videoLoop && videoAutoNext) {
+        videoAutoNext = false;
+        videoAutoNextBtnEl.classList.remove('active');
+    }
+});
+
+videoAutoNextBtnEl.addEventListener('click', () => {
+    videoAutoNext = !videoAutoNext;
+    videoAutoNextBtnEl.classList.toggle('active', videoAutoNext);
+    if (videoAutoNext && videoLoop) {
+        videoLoop = false;
+        videoLoopBtnEl.classList.remove('active');
     }
 });
 
 // ==================== 键盘快捷键 ====================
 
-/**
- * 全局键盘事件监听
- * 漫画模式：左右键翻页
- * 音频模式：左右键切歌，空格键播放/暂停
- */
 document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && sidebarOpen && isMobileView()) {
+        closeSidebar();
+        return;
+    }
     if (currentMode === 'audio') {
-        // 音频模式快捷键
         if (e.key === 'ArrowRight' || e.key === 'PageDown') {
             e.preventDefault();
             nextTrack();
@@ -757,9 +1375,49 @@ document.addEventListener('keydown', (e) => {
                 playAudio();
             }
         }
+    } else if (currentMode === 'video') {
+        if (e.ctrlKey && e.key === 'ArrowRight') {
+            e.preventDefault();
+            if (currentVideoIndex < videos.length - 1) {
+                playVideo(currentVideoIndex + 1);
+            }
+        } else if (e.ctrlKey && e.key === 'ArrowLeft') {
+            e.preventDefault();
+            if (currentVideoIndex > 0) {
+                playVideo(currentVideoIndex - 1);
+            }
+        } else if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            videoElement.currentTime = Math.min(videoElement.currentTime + 1, videoElement.duration);
+        } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            videoElement.currentTime = Math.max(videoElement.currentTime - 1, 0);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            videoElement.volume = Math.min(videoElement.volume + 0.1, 1);
+            videoVolumeEl.value = videoElement.volume * 100;
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            videoElement.volume = Math.max(videoElement.volume - 0.1, 0);
+            videoVolumeEl.value = videoElement.volume * 100;
+        } else if (e.key === ' ') {
+            e.preventDefault();
+            if (videoElement.paused) {
+                videoElement.play();
+                videoPlayPauseBtn.textContent = '⏸';
+            } else {
+                videoElement.pause();
+                videoPlayPauseBtn.textContent = '▶';
+            }
+        }
     } else {
-        // 漫画模式快捷键
-        if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+        if (e.ctrlKey && e.key === 'ArrowRight') {
+            e.preventDefault();
+            nextComic();
+        } else if (e.ctrlKey && e.key === 'ArrowLeft') {
+            e.preventDefault();
+            prevComic();
+        } else if (e.key === 'ArrowRight' || e.key === 'PageDown') {
             e.preventDefault();
             nextPage();
         } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
@@ -771,12 +1429,293 @@ document.addEventListener('keydown', (e) => {
 
 // ==================== 鼠标交互 ====================
 
-/**
- * 查看器点击事件
- * 在漫画模式下，点击图片或空白区域翻到下一页
- */
-viewerEl.addEventListener('click', (e) => {
-    if (currentMode === 'comic' && (e.target === viewerImageEl || e.target === viewerEl)) {
-        nextPage();
+viewerEl.addEventListener('mousemove', () => {
+    if (currentMode === 'comic' && currentImages.length > 0) {
+        showControls();
     }
 });
+
+// ==================== 自动载入文件 ====================
+
+const DB_NAME = 'PicLookDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'folderHandles';
+
+function openDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => resolve(request.result);
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                db.createObjectStore(STORE_NAME);
+            }
+        };
+    });
+}
+
+async function saveFolderHandle(dirHandle) {
+    try {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction(STORE_NAME, 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.put(dirHandle, 'lastFolder');
+            request.onerror = () => {
+                db.close();
+                reject(request.error);
+            };
+            request.onsuccess = () => {
+                db.close();
+                resolve();
+            };
+        });
+    } catch (err) {
+        console.error('保存文件夹句柄失败:', err);
+    }
+}
+
+async function getFolderHandle() {
+    try {
+        const db = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction(STORE_NAME, 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.get('lastFolder');
+            request.onerror = () => {
+                db.close();
+                reject(request.error);
+            };
+            request.onsuccess = () => {
+                db.close();
+                resolve(request.result);
+            };
+        });
+    } catch (err) {
+        console.error('读取文件夹句柄失败:', err);
+        return null;
+    }
+}
+
+async function loadFolderByType(dirHandle, type) {
+    if (type === 'music') {
+        await loadMusic(dirHandle);
+        await restoreAudioProgress();
+    } else if (type === 'video') {
+        await loadVideoFromHandle(dirHandle);
+        await restoreVideoProgress();
+    } else {
+        await loadMedia(dirHandle);
+        if (settings.mode === 'audio' && albums.length > 0) {
+            await restoreAudioProgress();
+        } else {
+            await restoreComicProgress();
+        }
+    }
+}
+
+async function autoLoadLastFolder() {
+    if (!autoLoadEnabled) return;
+
+    try {
+        const dirHandle = await getFolderHandle();
+        if (!dirHandle) {
+            console.log('没有保存的文件夹');
+            return;
+        }
+
+        let permission = await dirHandle.queryPermission({ mode: 'read' });
+        if (permission !== 'granted') {
+            permission = await dirHandle.requestPermission({ mode: 'read' });
+        }
+        if (permission !== 'granted') {
+            console.log('用户拒绝了文件夹访问权限');
+            return;
+        }
+
+        console.log('自动加载上次文件夹:', dirHandle.name);
+        fileTreeEl.innerHTML = '<div class="no-content" style="padding: 20px;">加载中...</div>';
+        const type = settings.lastImportType || 'image';
+        await loadFolderByType(dirHandle, type);
+    } catch (err) {
+        console.error('自动加载失败:', err);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    setSidebar(sidebarOpen);
+
+    // 恢复记忆的音量
+    if (settings.audioVolume != null) audioVolumeEl.value = settings.audioVolume;
+    if (settings.videoVolume != null) videoVolumeEl.value = settings.videoVolume;
+
+    console.log('DOMContentLoaded: 尝试自动加载');
+    autoLoadLastFolder();
+});
+
+// ==================== 音频可视化功能 ====================
+
+function initAudioVisualizer() {
+    // 初始化 Canvas
+    visualizerCanvas = visualizerCanvasEl;
+    visualizerCtx = visualizerCanvas.getContext('2d');
+    
+    // 设置 Canvas 尺寸
+    const rect = visualizerCanvas.getBoundingClientRect();
+    visualizerCanvas.width = rect.width * window.devicePixelRatio;
+    visualizerCanvas.height = rect.height * window.devicePixelRatio;
+    visualizerCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    
+    // 初始化音频上下文和分析器
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;  // 设置 FFT 大小，影响频率分辨率
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
+    }
+    
+    // 初始绘制静态波形
+    drawStaticWaveform();
+}
+
+function connectAudioToVisualizer() {
+    if (!audio || !audioContext || !analyser) return;
+    
+    // 如果音频源已存在，先断开
+    if (audioSource) {
+        audioSource.disconnect();
+    }
+    
+    // 创建新的音频源并连接到分析器
+    audioSource = audioContext.createMediaElementSource(audio);
+    audioSource.connect(analyser);
+    analyser.connect(audioContext.destination);
+    
+    // 开始动画
+    startVisualizerAnimation();
+}
+
+function startVisualizerAnimation() {
+    if (!visualizerCtx || !analyser) return;
+    
+    function draw() {
+        animationId = requestAnimationFrame(draw);
+        
+        // 获取频率数据
+        analyser.getByteFrequencyData(dataArray);
+        
+        // 获取 Canvas 实际尺寸
+        const width = visualizerCanvas.width / window.devicePixelRatio;
+        const height = visualizerCanvas.height / window.devicePixelRatio;
+        
+        // 清除画布
+        visualizerCtx.clearRect(0, 0, width, height);
+        
+        // 绘制频谱柱状图
+        drawFrequencyBars(width, height);
+        
+        // 绘制波浪线
+        drawWaveform(width, height);
+    }
+    
+    draw();
+}
+
+function stopVisualizerAnimation() {
+    if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+    }
+    
+    // 绘制静态波形
+    if (visualizerCtx) {
+        drawStaticWaveform();
+    }
+}
+
+function drawStaticWaveform() {
+    if (!visualizerCtx || !visualizerCanvas) return;
+    
+    const width = visualizerCanvas.width / window.devicePixelRatio;
+    const height = visualizerCanvas.height / window.devicePixelRatio;
+    
+    visualizerCtx.clearRect(0, 0, width, height);
+    
+    // 绘制底部静态线
+    visualizerCtx.beginPath();
+    visualizerCtx.strokeStyle = 'rgba(255, 178, 107, 0.3)';
+    visualizerCtx.lineWidth = 2;
+    visualizerCtx.moveTo(0, height / 2);
+    visualizerCtx.lineTo(width, height / 2);
+    visualizerCtx.stroke();
+}
+
+function drawFrequencyBars(width, height) {
+    const barCount = 32;  // 频谱柱数量
+    const barWidth = width / barCount - 2;
+    const gap = 2;
+    
+    // 计算每个柱的宽度
+    const barAreaWidth = width / barCount;
+    
+    for (let i = 0; i < barCount; i++) {
+        // 从数据数组中获取对应的频率值
+        const dataIndex = Math.floor(i * dataArray.length / barCount);
+        const value = dataArray[dataIndex];
+        
+        // 将值映射到高度
+        const barHeight = (value / 255) * (height / 2 - 5);
+        
+        // 顶部柱
+        const x = i * barAreaWidth + gap / 2;
+        
+        // 创建渐变色
+        const gradient = visualizerCtx.createLinearGradient(0, height / 2 - barHeight, 0, height / 2 + barHeight);
+        gradient.addColorStop(0, 'rgba(255, 178, 107, 0.9)');
+        gradient.addColorStop(0.5, 'rgba(255, 138, 92, 0.7)');
+        gradient.addColorStop(1, 'rgba(255, 178, 107, 0.9)');
+        
+        // 绘制顶部柱（向上）
+        visualizerCtx.fillStyle = gradient;
+        visualizerCtx.fillRect(x, height / 2 - barHeight, barWidth, barHeight);
+        
+        // 绘制底部柱（向下）
+        visualizerCtx.fillRect(x, height / 2, barWidth, barHeight);
+        
+        // 添加高光效果
+        visualizerCtx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+        visualizerCtx.fillRect(x, height / 2 - barHeight, barWidth, 2);
+        visualizerCtx.fillRect(x, height / 2 + barHeight - 2, barWidth, 2);
+    }
+}
+
+function drawWaveform(width, height) {
+    // 获取波形数据
+    analyser.getByteTimeDomainData(dataArray);
+    
+    // 绘制波浪线
+    visualizerCtx.beginPath();
+    visualizerCtx.strokeStyle = 'rgba(255, 178, 107, 0.6)';
+    visualizerCtx.lineWidth = 2;
+    visualizerCtx.lineCap = 'round';
+    visualizerCtx.lineJoin = 'round';
+    
+    const sliceWidth = width / dataArray.length;
+    let x = 0;
+    
+    for (let i = 0; i < dataArray.length; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = (v * height / 2) + (height / 4);
+        
+        if (i === 0) {
+            visualizerCtx.moveTo(x, y);
+        } else {
+            visualizerCtx.lineTo(x, y);
+        }
+        
+        x += sliceWidth;
+    }
+    
+    visualizerCtx.stroke();
+}
